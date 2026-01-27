@@ -1,0 +1,145 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@layer base {
+  :root {
+    --background: 228 15% 8%;
+    --foreground: 0 0% 98%;
+
+    --card: 228 15% 11%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 228 15% 11%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 265 84% 66%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 228 15% 18%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 228 15% 18%;
+    --muted-foreground: 228 10% 55%;
+
+    --accent: 265 84% 66%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 0%;
+
+    --border: 228 15% 20%;
+    --input: 228 15% 15%;
+    --ring: 265 84% 66%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 228 15% 8%;
+    --sidebar-foreground: 228 10% 70%;
+    --sidebar-primary: 265 84% 66%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 265 84% 66%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 228 15% 18%;
+    --sidebar-ring: 265 84% 66%;
+
+    /* Custom PrepWise colors */
+    --purple-glow: 265 84% 66%;
+    --purple-dark: 265 60% 40%;
+    --navy-deep: 228 25% 6%;
+    --cyan-accent: 187 92% 59%;
+    --score-green: 142 71% 45%;
+    --score-orange: 32 95% 55%;
+    --score-red: 0 72% 51%;
+  }
+
+  .dark {
+    --background: 228 15% 8%;
+    --foreground: 0 0% 98%;
+    --card: 228 15% 11%;
+    --card-foreground: 0 0% 98%;
+    --popover: 228 15% 11%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 265 84% 66%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 228 15% 18%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 228 15% 18%;
+    --muted-foreground: 228 10% 55%;
+    --accent: 265 84% 66%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 228 15% 20%;
+    --input: 228 15% 15%;
+    --ring: 265 84% 66%;
+    --sidebar-background: 228 15% 8%;
+    --sidebar-foreground: 228 10% 70%;
+    --sidebar-primary: 265 84% 66%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 265 84% 66%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 228 15% 18%;
+    --sidebar-ring: 265 84% 66%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', sans-serif;
+  }
+}
+
+@layer utilities {
+  .gradient-primary {
+    background: linear-gradient(135deg, hsl(265 84% 66%) 0%, hsl(280 70% 50%) 100%);
+  }
+  
+  .gradient-hero {
+    background: linear-gradient(135deg, hsl(265 84% 50%) 0%, hsl(228 25% 6%) 70%);
+  }
+
+  .gradient-card {
+    background: linear-gradient(180deg, hsl(228 15% 14%) 0%, hsl(228 15% 10%) 100%);
+  }
+
+  .glow-primary {
+    box-shadow: 0 0 40px -10px hsl(265 84% 66% / 0.5);
+  }
+
+  .glow-sm {
+    box-shadow: 0 0 20px -5px hsl(265 84% 66% / 0.3);
+  }
+
+  .text-gradient {
+    background: linear-gradient(135deg, hsl(0 0% 100%) 0%, hsl(228 10% 70%) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .score-bar-green {
+    background: linear-gradient(90deg, hsl(142 71% 45%) 0%, hsl(160 70% 50%) 100%);
+  }
+
+  .score-bar-orange {
+    background: linear-gradient(90deg, hsl(32 95% 55%) 0%, hsl(45 90% 55%) 100%);
+  }
+
+  .score-bar-purple {
+    background: linear-gradient(90deg, hsl(265 84% 66%) 0%, hsl(280 70% 60%) 100%);
+  }
+}

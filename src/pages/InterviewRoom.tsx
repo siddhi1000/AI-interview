@@ -1,0 +1,212 @@
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { 
+  Video, 
+  Mic, 
+  Settings, 
+  Phone, 
+  AlignLeft,
+  Volume2
+} from "lucide-react";
+import PrepWiseLogo from "@/components/PrepWiseLogo";
+import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import aiInterviewer from "@/assets/ai-interviewer.jpg";
+
+const InterviewRoom = () => {
+  const navigate = useNavigate();
+  const [timer, setTimer] = useState(522); // 8:42
+  const [isListening, setIsListening] = useState(true);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimer((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const messages = [
+    {
+      role: "ai",
+      time: "10:40 AM",
+      content: "That's a great explanation of how React handles virtual DOM diffing. Now, could you walk me through how you would optimize a component that is re-rendering too frequently in a large-scale application?"
+    },
+    {
+      role: "user",
+      time: "10:41 AM",
+      content: "Sure. To optimize that, I'd first start by profiling the app with the React DevTools to identify the exact cause. Usually, I'd look into using React.memo for functional components..."
+    }
+  ];
+
+  return (
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* Header */}
+      <header className="flex items-center justify-between px-6 py-4 border-b border-border">
+        <div className="flex items-center gap-4">
+          <PrepWiseLogo size="sm" />
+          <div className="h-6 w-px bg-border" />
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-destructive animate-pulse" />
+            <span className="text-sm text-muted-foreground">INTERVIEW IN PROGRESS:</span>
+            <span className="text-sm font-medium text-foreground">Senior Frontend Role</span>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-4">
+          <div className="px-4 py-2 bg-secondary rounded-full text-foreground font-mono text-sm">
+            {formatTime(timer)}
+          </div>
+          <Avatar className="h-10 w-10 border-2 border-success">
+            <AvatarFallback className="bg-success text-success-foreground">L</AvatarFallback>
+          </Avatar>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <div className="flex-1 flex gap-6 p-6">
+        {/* Video Area */}
+        <div className="flex-1 flex flex-col">
+          <div className="flex-1 bg-card rounded-2xl border border-border overflow-hidden relative flex items-center justify-center">
+            {/* AI Interviewer Display */}
+            <div className="text-center">
+              <div className="w-64 h-64 rounded-full border-4 border-secondary overflow-hidden mx-auto mb-6 relative">
+                <div className="absolute inset-0 rounded-full border-4 border-primary/30 animate-pulse" />
+                <img 
+                  src={aiInterviewer} 
+                  alt="AI Interviewer" 
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <h2 className="text-2xl font-bold text-foreground mb-2">AI Interviewer</h2>
+              <div className="flex items-center justify-center gap-2 text-primary">
+                <Volume2 size={18} className="animate-pulse" />
+                <span className="text-sm uppercase tracking-wider">
+                  {isListening ? "Listening..." : "Speaking..."}
+                </span>
+              </div>
+            </div>
+
+            {/* User Video Thumbnail */}
+            <div className="absolute bottom-6 left-6 w-40 h-28 bg-secondary rounded-xl border border-border overflow-hidden">
+              <div className="w-full h-full flex items-center justify-center bg-secondary">
+                <div className="h-12 w-12 rounded-full bg-primary/20 flex items-center justify-center">
+                  <Video className="text-primary" size={24} />
+                </div>
+              </div>
+              <div className="absolute bottom-2 left-2 px-2 py-1 bg-background/80 rounded text-xs text-foreground">
+                You (Adrian)
+              </div>
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div className="mt-6 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="text-xs text-muted-foreground uppercase tracking-wider">Input Volume</div>
+              <div className="flex gap-1">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div 
+                    key={i} 
+                    className={`w-1 rounded-full ${i <= 3 ? "bg-primary" : "bg-secondary"}`}
+                    style={{ height: `${8 + i * 4}px` }}
+                  />
+                ))}
+              </div>
+              <span className="text-success text-sm">Noise reduction Active</span>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <Button variant="outline" size="icon" className="h-12 w-12 rounded-full border-border">
+                <Video size={20} />
+              </Button>
+              <Button variant="outline" size="icon" className="h-12 w-12 rounded-full border-border">
+                <Mic size={20} />
+              </Button>
+              <Button variant="outline" size="icon" className="h-12 w-12 rounded-full border-border">
+                <Settings size={20} />
+              </Button>
+              <div className="w-px h-8 bg-border mx-2" />
+              <Button 
+                className="h-12 px-8 bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => navigate("/feedback")}
+              >
+                <Phone size={18} className="mr-2 rotate-[135deg]" />
+                End Interview
+              </Button>
+            </div>
+
+            <button className="text-muted-foreground text-sm hover:text-foreground flex items-center gap-2">
+              <span className="text-lg">?</span>
+              Technical difficulties?
+            </button>
+          </div>
+        </div>
+
+        {/* Transcription Panel */}
+        <div className="w-96 bg-card rounded-2xl border border-border flex flex-col overflow-hidden">
+          <div className="p-4 border-b border-border flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlignLeft size={18} className="text-muted-foreground" />
+              <span className="font-semibold text-foreground">Live Transcription</span>
+            </div>
+            <span className="text-xs text-muted-foreground uppercase tracking-wider">Real-Time</span>
+          </div>
+
+          <div className="flex-1 p-4 space-y-6 overflow-auto">
+            {messages.map((msg, index) => (
+              <div key={index}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs font-semibold text-muted-foreground uppercase">
+                    {msg.role === "ai" ? "AI INTERVIEWER" : "YOU"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{msg.time}</span>
+                </div>
+                <div className={`p-4 rounded-xl ${
+                  msg.role === "ai" 
+                    ? "bg-secondary text-foreground" 
+                    : "bg-primary/20 text-foreground"
+                }`}>
+                  <p className="text-sm leading-relaxed">
+                    {msg.content}
+                    {msg.role === "user" && (
+                      <code className="px-1.5 py-0.5 bg-background/50 rounded text-xs mx-1 font-mono">
+                        React.memo
+                      </code>
+                    )}
+                  </p>
+                </div>
+              </div>
+            ))}
+
+            {/* AI Typing Indicator */}
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs font-semibold text-muted-foreground uppercase">AI INTERVIEWER</span>
+                <span className="text-xs text-muted-foreground">Just now</span>
+              </div>
+              <div className="flex gap-1 p-4">
+                <span className="h-2 w-2 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "0ms" }} />
+                <span className="h-2 w-2 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "150ms" }} />
+                <span className="h-2 w-2 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "300ms" }} />
+              </div>
+            </div>
+          </div>
+
+          <div className="p-4 border-t border-border">
+            <p className="text-center text-muted-foreground text-sm">
+              Transcribing voice in real-time. Speak naturally.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default InterviewRoom;
