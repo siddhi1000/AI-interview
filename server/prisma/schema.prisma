@@ -38,6 +38,17 @@ enum DocumentKind {
   INTERVIEW_ATTACHMENT
 }
 
+enum QuestionType {
+  TECHNICAL
+  CULTURE
+}
+
+enum QuestionDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
 model User {
   id          String   @id @default(uuid())
   clerkUserId String   @unique
@@ -49,6 +60,7 @@ model User {
   profile   Profile?
   resumes   Resume[]
   interviews Interview[]
+  apiUsageLogs ApiUsageLog[]
 
   @@index([email])
 }
@@ -77,8 +89,11 @@ model Resume {
   originalName String
   storagePath  String
   mimeType     String
+  fileExt      String   @default("pdf")
   sizeBytes    Int
   sha256       String
+  extractedText String?
+  parsedAt     DateTime?
   uploadedAt   DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -121,12 +136,77 @@ model Interview {
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   jobRole  JobRole?  @relation(fields: [jobRoleId], references: [id], onDelete: SetNull)
   feedback InterviewFeedback?
+  assessment InterviewAssessment?
+  questions InterviewQuestion[]
+  answers   InterviewAnswer[]
   documents InterviewDocument[]
   events   InterviewEvent[]
 
   @@index([userId, createdAt])
   @@index([status])
   @@index([scheduledAt])
+}
+
+model InterviewQuestion {
+  id          String             @id @default(uuid())
+  interviewId String
+  order       Int
+  type        QuestionType
+  difficulty  QuestionDifficulty @default(MEDIUM)
+  topic       String?
+  question    String
+  expectedSignals Json?
+  createdAt   DateTime           @default(now())
+
+  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  answers   InterviewAnswer[]
+
+  @@unique([interviewId, order])
+  @@index([interviewId, order])
+}
+
+model InterviewAnswer {
+  id          String   @id @default(uuid())
+  interviewId String
+  questionId  String
+  answerText  String
+  submittedAt DateTime @default(now())
+
+  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  question  InterviewQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([interviewId, submittedAt])
+  @@index([questionId])
+}
+
+model InterviewAssessment {
+  id          String   @id @default(uuid())
+  interviewId String   @unique
+  overallScore Int?
+  rubricScores Json?
+  strengths    Json?
+  improvements Json?
+  summary      String?
+  modelInfo    Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+
+  @@index([overallScore])
+}
+
+model ApiUsageLog {
+  id        String   @id @default(uuid())
+  userId    String
+  provider  String
+  action    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([provider, action, createdAt])
 }
 
 model InterviewFeedback {

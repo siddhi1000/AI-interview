@@ -28,6 +28,7 @@ export const useApi = () => {
   };
 
   return {
+    getInterview: (id: string) => authFetch(`/api/interviews/${id}`),
     getProfile: () => authFetch("/api/profile"),
     upsertProfile: (payload: unknown) =>
       authFetch("/api/profile", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
@@ -58,6 +59,13 @@ export const useApi = () => {
       authFetch(`/api/interviews/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     upsertInterviewFeedback: (id: string, payload: unknown) =>
       authFetch(`/api/interviews/${id}/feedback`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+    generateInterviewQuestions: (id: string, payload?: unknown) =>
+      authFetch(`/api/interviews/${id}/questions/generate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload ?? {}) }),
+    listInterviewQuestions: (id: string) => authFetch(`/api/interviews/${id}/questions`),
+    submitInterviewAnswers: (id: string, payload: unknown) =>
+      authFetch(`/api/interviews/${id}/answers`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
+    generateInterviewAssessment: (id: string) =>
+      authFetch(`/api/interviews/${id}/assessment/generate`, { method: "POST" }),
     listCandidatesAdmin: (params?: { q?: string; skip?: number; take?: number }) => {
       const qs = new URLSearchParams();
       if (params?.q) qs.set("q", params.q);

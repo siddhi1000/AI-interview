@@ -4,7 +4,7 @@ import crypto from "crypto";
 import path from "path";
 import fs from "fs/promises";
 import { prisma } from "../db/prisma";
-import { assertPdf } from "../lib/fileValidation";
+import { detectResumeFileType, extractResumeText } from "../lib/resumeParsing";
 
 export const resumesRouter = Router();
 
@@ -23,8 +23,10 @@ resumesRouter.get("/", async (req, res, next) => {
         id: true,
         originalName: true,
         mimeType: true,
+        fileExt: true,
         sizeBytes: true,
         sha256: true,
+        parsedAt: true,
         uploadedAt: true,
       },
     });
@@ -38,13 +40,14 @@ resumesRouter.post("/", upload.single("file"), async (req, res, next) => {
   try {
     const dbUser = (req as any).dbUser as { id: string };
     const file = req.file as Express.Multer.File;
-    assertPdf(file);
+    const fileType = detectResumeFileType(file);
+    const extractedText = await extractResumeText(file, fileType);
 
     const sha256 = crypto.createHash("sha256").update(file.buffer).digest("hex");
     const id = crypto.randomUUID();
     const userDir = path.join(process.cwd(), "server", "uploads", dbUser.id);
     await fs.mkdir(userDir, { recursive: true });
-    const storagePath = path.join(userDir, `${id}.pdf`);
+    const storagePath = path.join(userDir, `${id}.${fileType}`);
     await fs.writeFile(storagePath, file.buffer);
 
     const resume = await prisma.resume.create({
@@ -54,15 +57,20 @@ resumesRouter.post("/", upload.single("file"), async (req, res, next) => {
         originalName: file.originalname,
         storagePath,
         mimeType: file.mimetype,
+        fileExt: fileType,
         sizeBytes: file.size,
         sha256,
+        extractedText,
+        parsedAt: new Date(),
       },
       select: {
         id: true,
         originalName: true,
         mimeType: true,
+        fileExt: true,
         sizeBytes: true,
         sha256: true,
+        parsedAt: true,
         uploadedAt: true,
       },
     });

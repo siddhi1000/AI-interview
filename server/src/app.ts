@@ -11,6 +11,7 @@ import { adminRouter } from "./routes/admin";
 import { attachDbUser, requireClerkAuth } from "./middleware/auth";
 import { requireAdmin } from "./middleware/auth";
 import { errorHandler } from "./middleware/error";
+import { prisma } from "./db/prisma";
 
 export const createApp = () => {
   const app = express();
@@ -31,7 +32,8 @@ export const createApp = () => {
     allowedHeaders: ["Content-Type", "Authorization"],
   };
 
-  app.use(cors(corsOptions)); // ✅ this is enough
+  app.use(cors(corsOptions));
+  app.options(/.*/, cors(corsOptions));
   app.use(helmet());
   app.use(express.json({ limit: "2mb" }));
 
@@ -43,6 +45,25 @@ export const createApp = () => {
 
   if (process.env.SKIP_CLERK !== "true") {
     app.use("/api", requireClerkAuth(), attachDbUser);
+  } else {
+    app.use("/api", async (req, _res, next) => {
+      try {
+        const id = req.header("x-test-user-id") || "00000000-0000-0000-0000-000000000001";
+        const email = req.header("x-test-email") || "test@example.com";
+        const roleHeader = (req.header("x-test-role") || "CANDIDATE").toUpperCase();
+        const role = roleHeader === "ADMIN" ? "ADMIN" : "CANDIDATE";
+        const user = await prisma.user.upsert({
+          where: { clerkUserId: id },
+          create: { clerkUserId: id, email, role },
+          update: { email, role },
+          include: { profile: true },
+        });
+        (req as any).dbUser = user;
+        next();
+      } catch (err) {
+        next(err);
+      }
+    });
   }
 
   app.use("/api/profile", profileRouter);

@@ -19,8 +19,12 @@ const UploadResume = () => {
       setFileName(file.name);
       setUploading(true);
       try {
-        if (file.type !== "application/pdf") {
-          toast.error("Please upload a PDF file.");
+        const name = file.name.toLowerCase();
+        const isPdf = file.type === "application/pdf" || name.endsWith(".pdf");
+        const isDocx = name.endsWith(".docx");
+        const isTxt = file.type.startsWith("text/") || name.endsWith(".txt");
+        if (!isPdf && !isDocx && !isTxt) {
+          toast.error("Please upload a PDF, DOCX, or TXT resume.");
           return;
         }
         await api.uploadResume(file);
@@ -66,7 +70,7 @@ const UploadResume = () => {
                 Drag and drop your resume or click to browse
               </p>
               <p className="text-sm text-muted-foreground">
-                Supported format: PDF (Max 10MB)
+                Supported formats: PDF, DOCX, TXT (Max 10MB)
               </p>
             </div>
 
@@ -75,7 +79,7 @@ const UploadResume = () => {
               <input 
                 type="file" 
                 onChange={handleFileUpload}
-                accept=".pdf,application/pdf"
+                accept=".pdf,.docx,.txt,application/pdf,text/plain"
                 className="hidden"
                 id="resume-upload"
               />

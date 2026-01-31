@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { 
   ArrowLeft, 
   Download, 
@@ -22,63 +22,77 @@ import { toast } from "sonner";
 
 const Feedback = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const api = useApi();
   const [searchParams] = useSearchParams();
-  const [saved, setSaved] = useState(false);
   const interviewId = searchParams.get("interviewId") || "";
-
-  const categories = [
-    {
-      icon: MessageSquare,
-      title: "Communication Skills",
-      score: 90,
-      description: "Excellent verbal communication. The candidate explained their thought process clearly while live coding and responded thoughtfully to follow-up questions. They used precise terminology and structured their responses using the STAR method effectively."
-    },
-    {
-      icon: Code,
-      title: "Technical Knowledge",
-      score: 82,
-      description: "Demonstrated deep understanding of Next.js, React Server Components, and PostgreSQL optimization. Showed some hesitation when discussing Redis caching strategies, but quickly self-corrected when prompted about race conditions."
-    },
-    {
-      icon: Lightbulb,
-      title: "Problem Solving",
-      score: 78,
-      description: "Strong logical approach to the algorithm challenge. Handled the edge cases well after an initial hint. The solution was efficient (O(n log n)) and well-documented with comments during the implementation phase."
-    },
-    {
-      icon: Users,
-      title: "Cultural Fit",
-      score: 95,
-      description: "Shows high emotional intelligence and enthusiasm for the company mission. Asked insightful questions about the team's deployment workflow and mentorship culture, indicating a strong desire for long-term growth and collaboration."
-    }
-  ];
-
-  const overallScore = useMemo(() => {
-    const avg = Math.round(categories.reduce((sum, c) => sum + c.score, 0) / categories.length);
-    return Number.isFinite(avg) ? avg : 0;
-  }, [categories]);
+  const [loading, setLoading] = useState(false);
+  const [interview, setInterview] = useState<any | null>(null);
 
   useEffect(() => {
     (async () => {
-      if (!interviewId || saved) return;
+      if (!interviewId) return;
+      setLoading(true);
       try {
-        const categoryScores = categories.reduce((acc: any, c) => {
-          acc[c.title] = { score: c.score, description: c.description };
-          return acc;
-        }, {});
-        await api.upsertInterviewFeedback(interviewId, {
-          overallScore,
-          outcome: overallScore >= 80 ? "PASS" : overallScore >= 60 ? "PENDING" : "FAIL",
-          notes: "Generated from UI feedback summary.",
-          categoryScores,
-        });
-        setSaved(true);
+        const res = await api.getInterview(interviewId);
+        setInterview(res?.interview ?? null);
       } catch (err: any) {
-        toast.error(err.message || "Failed to save feedback.");
+        toast.error(err.message || "Failed to load feedback.");
+      } finally {
+        setLoading(false);
       }
     })();
-  }, [interviewId, saved, overallScore]);
+  }, [interviewId]);
+
+  const assessment = interview?.assessment ?? null;
+  const rubric = assessment?.rubricScores ?? interview?.feedback?.categoryScores?.rubricScores ?? null;
+  const strengths: string[] = assessment?.strengths ?? interview?.feedback?.categoryScores?.strengths ?? [];
+  const improvements: string[] = assessment?.improvements ?? interview?.feedback?.categoryScores?.improvements ?? [];
+
+  const overallScore = useMemo(() => {
+    const score = assessment?.overallScore ?? interview?.feedback?.overallScore ?? 0;
+    return typeof score === "number" ? score : 0;
+  }, [assessment?.overallScore, interview?.feedback?.overallScore]);
+
+  const categories = useMemo(() => {
+    const s = strengths.slice(0, 3).join(" ");
+    const i = improvements.slice(0, 3).join(" ");
+    const base = (label: string) =>
+      [s ? `Strengths: ${s}` : "", i ? `Areas to improve: ${i}` : ""].filter(Boolean).join(" ");
+
+    const safe = (v: any) => (typeof v === "number" ? v : 0);
+
+    return [
+      {
+        icon: MessageSquare,
+        title: "Communication",
+        score: safe(rubric?.communication),
+        description: base("Communication"),
+      },
+      {
+        icon: Code,
+        title: "Technical Accuracy",
+        score: safe(rubric?.technicalAccuracy),
+        description: base("Technical Accuracy"),
+      },
+      {
+        icon: Lightbulb,
+        title: "Problem Solving",
+        score: safe(rubric?.problemSolving),
+        description: base("Problem Solving"),
+      },
+      {
+        icon: Users,
+        title: "Cultural Fit",
+        score: safe(rubric?.culturalFit),
+        description: base("Cultural Fit"),
+      },
+    ];
+  }, [rubric, strengths, improvements]);
+
+  const title = interview?.jobRole?.title ? `Feedback on the Interview - ${interview.jobRole.title}` : "Interview Feedback";
+  const summary = assessment?.summary ?? interview?.feedback?.notes ?? "";
+  const interviewDate = interview?.endedAt ?? interview?.createdAt ?? null;
 
   return (
     <div className="min-h-screen bg-background">
@@ -98,16 +112,16 @@ const Feedback = () => {
       <main className="max-w-4xl mx-auto p-8">
         {/* Back Button */}
         <button 
-          onClick={() => navigate("/dashboard")}
+          onClick={() => navigate(location.pathname.startsWith("/admin") ? "/admin/interviews" : "/dashboard")}
           className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors"
         >
           <ArrowLeft size={18} />
-          <span className="text-sm">Back to Dashboard</span>
+          <span className="text-sm">{location.pathname.startsWith("/admin") ? "Back to Interviews" : "Back to Dashboard"}</span>
         </button>
 
         {/* Title */}
         <h1 className="text-3xl font-bold text-foreground mb-6">
-          Feedback on the Interview - Full Stack Role
+          {title}
         </h1>
 
         {/* Stats Row */}
@@ -131,7 +145,9 @@ const Feedback = () => {
             </div>
             <div>
               <div className="text-xs text-muted-foreground uppercase">Interview Date</div>
-              <div className="text-lg font-semibold text-foreground">{new Date().toLocaleDateString()}</div>
+              <div className="text-lg font-semibold text-foreground">
+                {interviewDate ? new Date(interviewDate).toLocaleDateString() : "—"}
+              </div>
             </div>
           </div>
 
@@ -155,9 +171,7 @@ const Feedback = () => {
             </div>
             <div>
               <h3 className="font-semibold text-foreground mb-2">AI Performance Summary</h3>
-              <p className="text-muted-foreground leading-relaxed">
-                The candidate demonstrated strong proficiency in full-stack concepts, particularly in frontend architecture and database optimization. While technical knowledge was high, there is room for improvement in articulating complex system designs and handling edge-case behavioral questions. Overall, a very promising performance that aligns well with senior engineering expectations.
-              </p>
+              <p className="text-muted-foreground leading-relaxed">{loading ? "Loading..." : summary || "No summary available yet."}</p>
             </div>
           </div>
           {/* Decorative Sparkles */}

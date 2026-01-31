@@ -21,6 +21,10 @@ const InterviewRoom = () => {
   const [timer, setTimer] = useState(522); // 8:42
   const [isListening, setIsListening] = useState(true);
   const [interviewId, setInterviewId] = useState<string | null>(null);
+  const [questions, setQuestions] = useState<any[]>([]);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [generating, setGenerating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -37,6 +41,17 @@ const InterviewRoom = () => {
         if (!id) return;
         setInterviewId(id);
         await api.updateInterview(id, { status: "IN_PROGRESS", startedAt: new Date().toISOString() });
+        try {
+          setGenerating(true);
+          const q = await api.generateInterviewQuestions(id, { questionCount: 8, difficultyTarget: "MEDIUM" });
+          const qs = (q?.questions as any[]) ?? [];
+          setQuestions(qs);
+          setAnswers({});
+        } catch (err: any) {
+          toast.error(err.message || "Failed to generate questions.");
+        } finally {
+          setGenerating(false);
+        }
       } catch (err: any) {
         toast.error(err.message || "Failed to start interview session.");
       }
@@ -180,54 +195,94 @@ const InterviewRoom = () => {
           <div className="p-4 border-b border-border flex items-center justify-between">
             <div className="flex items-center gap-2">
               <AlignLeft size={18} className="text-muted-foreground" />
-              <span className="font-semibold text-foreground">Live Transcription</span>
+              <span className="font-semibold text-foreground">Interview Questions</span>
             </div>
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">Real-Time</span>
+            <span className="text-xs text-muted-foreground uppercase tracking-wider">
+              {generating ? "Generating" : questions.length ? `${questions.length} Loaded` : "Ready"}
+            </span>
           </div>
 
           <div className="flex-1 p-4 space-y-6 overflow-auto">
-            {messages.map((msg, index) => (
-              <div key={index}>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase">
-                    {msg.role === "ai" ? "AI INTERVIEWER" : "YOU"}
-                  </span>
-                  <span className="text-xs text-muted-foreground">{msg.time}</span>
+            {questions.length === 0 ? (
+              <div className="space-y-4">
+                <div className="text-sm text-muted-foreground">
+                  {generating ? "Generating interview questions..." : "No questions yet. Generate a question set to begin."}
                 </div>
-                <div className={`p-4 rounded-xl ${
-                  msg.role === "ai" 
-                    ? "bg-secondary text-foreground" 
-                    : "bg-primary/20 text-foreground"
-                }`}>
-                  <p className="text-sm leading-relaxed">
-                    {msg.content}
-                    {msg.role === "user" && (
-                      <code className="px-1.5 py-0.5 bg-background/50 rounded text-xs mx-1 font-mono">
-                        React.memo
-                      </code>
-                    )}
-                  </p>
-                </div>
+                <Button
+                  className="w-full gradient-primary text-primary-foreground"
+                  disabled={!interviewId || generating}
+                  onClick={async () => {
+                    if (!interviewId) return;
+                    setGenerating(true);
+                    try {
+                      const q = await api.generateInterviewQuestions(interviewId, { questionCount: 8, difficultyTarget: "MEDIUM" });
+                      const qs = (q?.questions as any[]) ?? [];
+                      setQuestions(qs);
+                      setAnswers({});
+                    } catch (err: any) {
+                      toast.error(err.message || "Failed to generate questions.");
+                    } finally {
+                      setGenerating(false);
+                    }
+                  }}
+                >
+                  {generating ? "Generating..." : "Generate Questions"}
+                </Button>
               </div>
-            ))}
+            ) : (
+              <div className="space-y-6">
+                {questions.map((q) => (
+                  <div key={q.id} className="space-y-2">
+                    <div className="text-xs text-muted-foreground uppercase tracking-wider">
+                      Q{q.order} • {q.type} • {q.difficulty}
+                    </div>
+                    <div className="p-4 rounded-xl bg-secondary text-foreground">
+                      <p className="text-sm leading-relaxed">{q.question}</p>
+                    </div>
+                    <textarea
+                      className="w-full min-h-[96px] rounded-xl bg-background border border-border p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary"
+                      placeholder="Type your answer..."
+                      value={answers[q.id] ?? ""}
+                      onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
+                    />
+                  </div>
+                ))}
 
-            {/* AI Typing Indicator */}
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs font-semibold text-muted-foreground uppercase">AI INTERVIEWER</span>
-                <span className="text-xs text-muted-foreground">Just now</span>
+                <Button
+                  className="w-full gradient-primary text-primary-foreground"
+                  disabled={!interviewId || submitting}
+                  onClick={async () => {
+                    if (!interviewId) return;
+                    setSubmitting(true);
+                    try {
+                      const payload = {
+                        answers: questions.map((q) => ({ questionId: q.id, answerText: (answers[q.id] ?? "").trim() })),
+                      };
+                      const missing = payload.answers.find((a) => !a.answerText);
+                      if (missing) {
+                        toast.error("Please answer all questions before submitting.");
+                        return;
+                      }
+                      await api.submitInterviewAnswers(interviewId, payload);
+                      await api.generateInterviewAssessment(interviewId);
+                      toast.success("Assessment generated.");
+                      navigate(`/feedback?interviewId=${encodeURIComponent(interviewId)}`);
+                    } catch (err: any) {
+                      toast.error(err.message || "Failed to generate assessment.");
+                    } finally {
+                      setSubmitting(false);
+                    }
+                  }}
+                >
+                  {submitting ? "Submitting..." : "Submit Answers & Generate Feedback"}
+                </Button>
               </div>
-              <div className="flex gap-1 p-4">
-                <span className="h-2 w-2 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "0ms" }} />
-                <span className="h-2 w-2 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "150ms" }} />
-                <span className="h-2 w-2 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: "300ms" }} />
-              </div>
-            </div>
+            )}
           </div>
 
           <div className="p-4 border-t border-border">
             <p className="text-center text-muted-foreground text-sm">
-              Transcribing voice in real-time. Speak naturally.
+              Questions are generated from your resume and saved profile.
             </p>
           </div>
         </div>

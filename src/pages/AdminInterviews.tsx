@@ -4,10 +4,12 @@ import Sidebar from "@/components/Sidebar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useApi } from "@/lib/api";
+import { useNavigate } from "react-router-dom";
 
 const AdminInterviews = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const api = useApi();
+  const navigate = useNavigate();
   const [remote, setRemote] = useState<any[] | null>(null);
 
   const fallback = [
@@ -260,7 +262,12 @@ const AdminInterviews = () => {
                           <Play size={16} />
                         </Button>
                       )}
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                        onClick={() => navigate(`/admin/feedback?interviewId=${encodeURIComponent(interview.id)}`)}
+                      >
                         <Eye size={16} />
                       </Button>
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-red-400">

@@ -33,7 +33,22 @@ Admin access is controlled by:
 
 - SQL injection: Prisma parameterization.
 - Sensitive fields: `phone` is stored encrypted using AES-256-GCM (`FIELD_ENCRYPTION_KEY`).
-- File uploads: resumes are validated (PDF magic header + MIME), stored on disk, and hashed (sha256).
+- File uploads: resumes are validated (PDF/DOCX/TXT), stored on disk, hashed (sha256), and parsed to extracted text.
+
+## LLM Assessment (Gemini)
+
+### Environment
+
+- `GEMINI_API_KEY`: server-side API key (do not expose to browser).
+- `GEMINI_MODEL`: defaults to `gemini-1.5-flash`.
+- `GEMINI_RPM_PER_USER`, `GEMINI_RPD_PER_USER`: per-user quotas enforced by middleware.
+
+### Endpoints
+
+- `POST /api/interviews/:id/questions/generate` -> generates 8–10 questions from Profile + latest Resume text.
+- `GET /api/interviews/:id/questions` -> lists generated questions.
+- `POST /api/interviews/:id/answers` -> stores answers for generated questions.
+- `POST /api/interviews/:id/assessment/generate` -> evaluates answers and persists an assessment + updates `InterviewFeedback`.
 
 ## Backup & Recovery (Postgres)
 
