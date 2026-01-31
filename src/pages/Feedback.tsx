@@ -1,4 +1,5 @@
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { 
   ArrowLeft, 
   Download, 
@@ -16,9 +17,15 @@ import PrepWiseLogo from "@/components/PrepWiseLogo";
 import CategoryScoreCard from "@/components/CategoryScoreCard";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useApi } from "@/lib/api";
+import { toast } from "sonner";
 
 const Feedback = () => {
   const navigate = useNavigate();
+  const api = useApi();
+  const [searchParams] = useSearchParams();
+  const [saved, setSaved] = useState(false);
+  const interviewId = searchParams.get("interviewId") || "";
 
   const categories = [
     {
@@ -46,6 +53,32 @@ const Feedback = () => {
       description: "Shows high emotional intelligence and enthusiasm for the company mission. Asked insightful questions about the team's deployment workflow and mentorship culture, indicating a strong desire for long-term growth and collaboration."
     }
   ];
+
+  const overallScore = useMemo(() => {
+    const avg = Math.round(categories.reduce((sum, c) => sum + c.score, 0) / categories.length);
+    return Number.isFinite(avg) ? avg : 0;
+  }, [categories]);
+
+  useEffect(() => {
+    (async () => {
+      if (!interviewId || saved) return;
+      try {
+        const categoryScores = categories.reduce((acc: any, c) => {
+          acc[c.title] = { score: c.score, description: c.description };
+          return acc;
+        }, {});
+        await api.upsertInterviewFeedback(interviewId, {
+          overallScore,
+          outcome: overallScore >= 80 ? "PASS" : overallScore >= 60 ? "PENDING" : "FAIL",
+          notes: "Generated from UI feedback summary.",
+          categoryScores,
+        });
+        setSaved(true);
+      } catch (err: any) {
+        toast.error(err.message || "Failed to save feedback.");
+      }
+    })();
+  }, [interviewId, saved, overallScore]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -85,7 +118,10 @@ const Feedback = () => {
             </div>
             <div>
               <div className="text-xs text-muted-foreground uppercase">Overall Impression</div>
-              <div className="text-xl font-bold text-foreground">85<span className="text-muted-foreground font-normal text-sm">/100</span></div>
+              <div className="text-xl font-bold text-foreground">
+                {overallScore}
+                <span className="text-muted-foreground font-normal text-sm">/100</span>
+              </div>
             </div>
           </div>
 
@@ -95,7 +131,7 @@ const Feedback = () => {
             </div>
             <div>
               <div className="text-xs text-muted-foreground uppercase">Interview Date</div>
-              <div className="text-lg font-semibold text-foreground">Mar 19, 2025</div>
+              <div className="text-lg font-semibold text-foreground">{new Date().toLocaleDateString()}</div>
             </div>
           </div>
 

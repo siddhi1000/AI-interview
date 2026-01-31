@@ -1,9 +1,16 @@
 import { Calendar, Clock, Star, ChevronRight } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import { Button } from "@/components/ui/button";
+import { useEffect, useMemo, useState } from "react";
+import { useApi } from "@/lib/api";
+import { useNavigate } from "react-router-dom";
 
 const DashboardHistory = () => {
-  const interviews = [
+  const api = useApi();
+  const navigate = useNavigate();
+  const [remote, setRemote] = useState<any[] | null>(null);
+
+  const fallback = [
     {
       id: 1,
       title: "Full Stack Interview",
@@ -51,6 +58,49 @@ const DashboardHistory = () => {
     },
   ];
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.listInterviews();
+        setRemote((res?.interviews as any[]) ?? []);
+      } catch {
+        setRemote(null);
+      }
+    })();
+  }, []);
+
+  const interviews = useMemo(() => {
+    if (!remote) return fallback;
+    return remote
+      .filter((i) => i.status === "COMPLETED")
+      .map((i) => {
+        const date = new Date(i.endedAt ?? i.createdAt ?? Date.now()).toLocaleDateString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "2-digit",
+        });
+        const started = i.startedAt ? new Date(i.startedAt).getTime() : null;
+        const ended = i.endedAt ? new Date(i.endedAt).getTime() : null;
+        const durationMinutes = started && ended ? Math.max(1, Math.round((ended - started) / 60000)) : null;
+        return {
+          id: i.id,
+          title: i.jobRole?.title ?? "Interview",
+          date,
+          duration: durationMinutes ? `${durationMinutes} min` : "—",
+          score: i.feedback?.overallScore ?? 0,
+          type: i.jobRole?.category ?? "Mixed",
+          status: "completed",
+        };
+      });
+  }, [remote]);
+
+  const stats = useMemo(() => {
+    const scores = interviews.map((i) => i.score).filter((s) => typeof s === "number" && !Number.isNaN(s));
+    const avg = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    const best = scores.length ? Math.max(...scores) : 0;
+    return { avg, best };
+  }, [interviews]);
+
   const getScoreColor = (score: number) => {
     if (score >= 80) return "text-green-400";
     if (score >= 60) return "text-yellow-400";
@@ -77,7 +127,7 @@ const DashboardHistory = () => {
           </div>
           <div className="bg-card border border-border rounded-xl p-4">
             <p className="text-muted-foreground text-sm">Average Score</p>
-            <p className="text-2xl font-bold text-green-400">83%</p>
+            <p className="text-2xl font-bold text-green-400">{stats.avg}%</p>
           </div>
           <div className="bg-card border border-border rounded-xl p-4">
             <p className="text-muted-foreground text-sm">Total Time</p>
@@ -85,7 +135,7 @@ const DashboardHistory = () => {
           </div>
           <div className="bg-card border border-border rounded-xl p-4">
             <p className="text-muted-foreground text-sm">Best Score</p>
-            <p className="text-2xl font-bold text-primary">92%</p>
+            <p className="text-2xl font-bold text-primary">{stats.best}%</p>
           </div>
         </div>
 
@@ -130,7 +180,7 @@ const DashboardHistory = () => {
                     </p>
                     <p className="text-xs text-muted-foreground">Score</p>
                   </div>
-                  <Button variant="ghost" size="icon">
+                  <Button variant="ghost" size="icon" onClick={() => navigate("/feedback")}>
                     <ChevronRight size={20} />
                   </Button>
                 </div>

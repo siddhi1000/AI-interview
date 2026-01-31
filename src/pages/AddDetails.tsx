@@ -6,6 +6,10 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useApi } from "@/lib/api";
+import { toast } from "sonner";
+import { useUser } from "@clerk/clerk-react";
+import { useState } from "react";
 import {
   Select,
   SelectContent,
@@ -16,10 +20,20 @@ import {
 
 const AddDetails = () => {
   const navigate = useNavigate();
+  const api = useApi();
+  const { user } = useUser();
+  const [role, setRole] = useState<string | null>(null);
+  const [experience, setExperience] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const handleCreateProfile = () => {
-    // Add logic to save details
-    navigate("/interview");
+  const experienceToEnum = (value: string | null) => {
+    if (!value) return null;
+    if (value === "0-1") return "ZERO_TO_ONE";
+    if (value === "1-3") return "ONE_TO_THREE";
+    if (value === "3-5") return "THREE_TO_FIVE";
+    if (value === "5-10") return "FIVE_TO_TEN";
+    if (value === "10+") return "TEN_PLUS";
+    return null;
   };
 
   return (
@@ -44,7 +58,32 @@ const AddDetails = () => {
 
         {/* Form Card */}
         <Card className="max-w-2xl p-8">
-          <form onSubmit={(e) => { e.preventDefault(); handleCreateProfile(); }} className="space-y-8">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const form = new FormData(e.currentTarget);
+              setSaving(true);
+              try {
+                const payload = {
+                  firstName: String(form.get("firstName") ?? "").trim(),
+                  lastName: String(form.get("lastName") ?? "").trim(),
+                  phone: String(form.get("phone") ?? "").trim() || null,
+                  experienceLevel: experienceToEnum(experience),
+                  skills: String(form.get("skills") ?? "").trim() || null,
+                  bio: String(form.get("bio") ?? "").trim() || null,
+                  preferences: role ? { targetRole: role } : undefined,
+                };
+                await api.upsertProfile(payload);
+                toast.success("Details saved.");
+                navigate("/interview");
+              } catch (err: any) {
+                toast.error(err.message || "Failed to save details.");
+              } finally {
+                setSaving(false);
+              }
+            }}
+            className="space-y-8"
+          >
             {/* Personal Information */}
             <div>
               <div className="flex items-center gap-2 mb-4">
@@ -57,18 +96,22 @@ const AddDetails = () => {
                     <Label htmlFor="firstName">First Name</Label>
                     <Input 
                       id="firstName"
+                      name="firstName"
                       placeholder="John" 
                       className="mt-2"
                       required
+                      defaultValue={user?.firstName ?? ""}
                     />
                   </div>
                   <div>
                     <Label htmlFor="lastName">Last Name</Label>
                     <Input 
                       id="lastName"
+                      name="lastName"
                       placeholder="Doe" 
                       className="mt-2"
                       required
+                      defaultValue={user?.lastName ?? ""}
                     />
                   </div>
                 </div>
@@ -80,12 +123,15 @@ const AddDetails = () => {
                     placeholder="john@example.com" 
                     className="mt-2"
                     required
+                    value={user?.primaryEmailAddress?.emailAddress ?? ""}
+                    readOnly
                   />
                 </div>
                 <div>
                   <Label htmlFor="phone">Phone Number</Label>
                   <Input 
                     id="phone"
+                    name="phone"
                     type="tel"
                     placeholder="+1 (555) 000-0000" 
                     className="mt-2"
@@ -103,7 +149,7 @@ const AddDetails = () => {
               <div className="space-y-4">
                 <div>
                   <Label htmlFor="role">Target Role</Label>
-                  <Select>
+                  <Select onValueChange={(v) => setRole(v)}>
                     <SelectTrigger className="mt-2">
                       <SelectValue placeholder="Select a role" />
                     </SelectTrigger>
@@ -120,7 +166,7 @@ const AddDetails = () => {
                 </div>
                 <div>
                   <Label htmlFor="experience">Years of Experience</Label>
-                  <Select>
+                  <Select onValueChange={(v) => setExperience(v)}>
                     <SelectTrigger className="mt-2">
                       <SelectValue placeholder="Select experience level" />
                     </SelectTrigger>
@@ -137,6 +183,7 @@ const AddDetails = () => {
                   <Label htmlFor="skills">Key Skills</Label>
                   <Textarea 
                     id="skills"
+                    name="skills"
                     placeholder="e.g., React, Node.js, TypeScript, Python..." 
                     className="mt-2"
                     rows={3}
@@ -146,6 +193,7 @@ const AddDetails = () => {
                   <Label htmlFor="bio">About You</Label>
                   <Textarea 
                     id="bio"
+                    name="bio"
                     placeholder="Tell us about yourself, your background, and career goals..." 
                     className="mt-2"
                     rows={4}
@@ -167,8 +215,9 @@ const AddDetails = () => {
               <Button 
                 type="submit"
                 className="gradient-primary text-primary-foreground flex-1"
+                disabled={saving}
               >
-                Save & Continue to Interview
+                {saving ? "Saving..." : "Save & Continue to Interview"}
               </Button>
             </div>
           </form>

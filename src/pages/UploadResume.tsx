@@ -3,15 +3,33 @@ import { Upload, FileText, ArrowLeft } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { useState } from "react";
+import { useApi } from "@/lib/api";
+import { toast } from "sonner";
 
 const UploadResume = () => {
   const navigate = useNavigate();
+  const api = useApi();
+  const [uploading, setUploading] = useState(false);
+  const [fileName, setFileName] = useState<string | null>(null);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      console.log("File uploaded:", file.name);
-      // Add file upload logic here
+      setFileName(file.name);
+      setUploading(true);
+      try {
+        if (file.type !== "application/pdf") {
+          toast.error("Please upload a PDF file.");
+          return;
+        }
+        await api.uploadResume(file);
+        toast.success("Resume uploaded successfully.");
+      } catch (err: any) {
+        toast.error(err.message || "Upload failed.");
+      } finally {
+        setUploading(false);
+      }
     }
   };
 
@@ -48,7 +66,7 @@ const UploadResume = () => {
                 Drag and drop your resume or click to browse
               </p>
               <p className="text-sm text-muted-foreground">
-                Supported formats: PDF, DOC, DOCX (Max 10MB)
+                Supported format: PDF (Max 10MB)
               </p>
             </div>
 
@@ -57,7 +75,7 @@ const UploadResume = () => {
               <input 
                 type="file" 
                 onChange={handleFileUpload}
-                accept=".pdf,.doc,.docx"
+                accept=".pdf,application/pdf"
                 className="hidden"
                 id="resume-upload"
               />
@@ -66,6 +84,7 @@ const UploadResume = () => {
                 <div>
                   <p className="text-foreground font-medium">Click to upload</p>
                   <p className="text-sm text-muted-foreground">or drag and drop</p>
+                  {fileName && <p className="text-xs text-muted-foreground mt-2">{fileName}</p>}
                 </div>
               </label>
             </div>
@@ -81,8 +100,9 @@ const UploadResume = () => {
               <Button 
                 className="gradient-primary text-primary-foreground flex-1"
                 onClick={() => navigate("/interview")}
+                disabled={uploading}
               >
-                Continue to Interview
+                {uploading ? "Uploading..." : "Continue to Interview"}
               </Button>
             </div>
           </div>

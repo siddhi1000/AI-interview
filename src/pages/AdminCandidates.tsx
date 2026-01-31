@@ -1,13 +1,16 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import StatCard from "@/components/StatCard";
 import CandidateRow from "@/components/CandidateRow";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useApi } from "@/lib/api";
 
 const AdminCandidates = () => {
   const [searchQuery, setSearchQuery] = useState("");
+  const api = useApi();
+  const [remoteCandidates, setRemoteCandidates] = useState<any[] | null>(null);
 
   const stats = [
     { label: "Total Registered Users", value: "12,480", trend: { value: "+12%", positive: true } },
@@ -15,44 +18,45 @@ const AdminCandidates = () => {
     { label: "Avg. Platform Performance", value: "84%", trend: { value: "-2%", positive: false } },
   ];
 
-  const candidates = [
-    { 
-      name: "Jane Doe", 
-      email: "jane.doe@example.com", 
-      totalInterviews: 14, 
-      avgScore: 92, 
-      lastActive: "2 hours ago",
-      initials: "JD",
-      color: "hsl(265 84% 66%)"
-    },
-    { 
-      name: "Mark Kim", 
-      email: "m.kim@techcorp.io", 
-      totalInterviews: 8, 
-      avgScore: 76, 
-      lastActive: "5 hours ago",
-      initials: "MK",
-      color: "hsl(187 92% 45%)"
-    },
-    { 
-      name: "Sarah Linn", 
-      email: "slinn.ux@gmail.com", 
-      totalInterviews: 21, 
-      avgScore: 88, 
-      lastActive: "Yesterday",
-      initials: "SL",
-      color: "hsl(142 71% 45%)"
-    },
-    { 
-      name: "Robert Jones", 
-      email: "rjones@domain.com", 
-      totalInterviews: 3, 
-      avgScore: 42, 
-      lastActive: "3 days ago",
-      initials: "RJ",
-      color: "hsl(32 95% 55%)"
-    },
-  ];
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.listCandidatesAdmin({ q: searchQuery || undefined });
+        setRemoteCandidates((res?.candidates as any[]) ?? []);
+      } catch {
+        setRemoteCandidates(null);
+      }
+    })();
+  }, [searchQuery]);
+
+  const candidates = useMemo(() => {
+    const toColor = (seed: string) => {
+      let hash = 0;
+      for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+      const hue = hash % 360;
+      return `hsl(${hue} 84% 66%)`;
+    };
+
+    const toInitials = (nameOrEmail: string) => {
+      const parts = nameOrEmail.split(" ").filter(Boolean);
+      const raw = parts.length >= 2 ? `${parts[0][0]}${parts[1][0]}` : nameOrEmail.slice(0, 2);
+      return raw.toUpperCase();
+    };
+
+    const list = remoteCandidates ?? [];
+    return list.map((c) => {
+      const name = c.name || c.email;
+      return {
+        name,
+        email: c.email,
+        totalInterviews: c.interviewsCompleted ?? 0,
+        avgScore: c.avgScore ?? 0,
+        lastActive: new Date(c.createdAt).toLocaleDateString(),
+        initials: toInitials(name),
+        color: toColor(c.email),
+      };
+    });
+  }, [remoteCandidates]);
 
   return (
     <div className="min-h-screen bg-background flex">

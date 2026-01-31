@@ -1,4 +1,5 @@
 import { useNavigate, useLocation } from "react-router-dom";
+import { SignOutButton, useUser } from "@clerk/clerk-react";
 import { 
   LayoutDashboard, 
   History, 
@@ -20,6 +21,7 @@ interface SidebarProps {
 const Sidebar = ({ variant = "user" }: SidebarProps) => {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useUser();
 
   const userNavItems = [
     { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
@@ -74,29 +76,32 @@ const Sidebar = ({ variant = "user" }: SidebarProps) => {
       <div className="p-4 border-t border-border">
         <div className="flex items-center gap-3 px-4 py-3">
           <Avatar className="h-10 w-10">
-            <AvatarImage src="" />
+            <AvatarImage src={user?.imageUrl ?? ""} />
             <AvatarFallback className="bg-primary/20 text-primary">
-              {variant === "admin" ? "AR" : "AD"}
+              {(user?.fullName ?? user?.firstName ?? user?.username ?? "U")
+                .split(" ")
+                .filter(Boolean)
+                .slice(0, 2)
+                .map((n) => n[0]?.toUpperCase())
+                .join("")}
             </AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
             <p className="font-medium text-foreground text-sm truncate">
-              {variant === "admin" ? "Alex Rivera" : "Adrian"}
+              {user?.fullName ?? user?.firstName ?? user?.username ?? "User"}
             </p>
             <p className="text-xs text-muted-foreground truncate">
-              {variant === "admin" ? "Super Admin" : "adrian@example.com"}
+              {user?.primaryEmailAddress?.emailAddress ?? ""}
             </p>
           </div>
         </div>
         
-        <Button 
-          variant="ghost" 
-          className="w-full mt-2 text-muted-foreground hover:text-foreground"
-          onClick={() => navigate("/")}
-        >
-          <LogOut size={18} className="mr-2" />
-          Log Out
-        </Button>
+        <SignOutButton redirectUrl="/">
+          <Button variant="ghost" className="w-full mt-2 text-muted-foreground hover:text-foreground">
+            <LogOut size={18} className="mr-2" />
+            Log Out
+          </Button>
+        </SignOutButton>
       </div>
     </aside>
   );

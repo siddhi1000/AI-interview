@@ -5,11 +5,17 @@ import InterviewCard from "@/components/InterviewCard";
 import RoleCard from "@/components/RoleCard";
 import { Button } from "@/components/ui/button";
 import aiInterviewer from "@/assets/ai-interviewer.jpg";
+import { useMemo } from "react";
+import { useApi } from "@/lib/api";
+import { useUser } from "@clerk/clerk-react";
+import { useQuery } from "@tanstack/react-query";
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const api = useApi();
+  const { user } = useUser();
 
-  const interviews = [
+  const fallbackInterviews = [
     {
       title: "Full Stack Interview",
       date: "Mar 19, 2025",
@@ -28,11 +34,61 @@ const Dashboard = () => {
     },
   ];
 
-  const roles = [
+  const fallbackRoles = [
     { icon: Monitor, title: "Front End Interview", technologies: "React, Tailwind, System Design" },
     { icon: Smartphone, title: "Mobile Developer", technologies: "React Native, Flutter, Swift" },
     { icon: Cpu, title: "Backend Engineer", technologies: "Node.js, Python, PostgreSQL" },
   ];
+
+  const interviewsQuery = useQuery({
+    queryKey: ["interviews"],
+    queryFn: async () => api.listInterviews(),
+    staleTime: 15_000,
+    retry: 1,
+  });
+
+  const rolesQuery = useQuery({
+    queryKey: ["job-roles", { active: true }],
+    queryFn: async () => api.listJobRoles({ active: true }),
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const interviews = useMemo(() => {
+    const remoteInterviews = (interviewsQuery.data?.interviews as any[] | undefined) ?? null;
+    if (!remoteInterviews) return fallbackInterviews;
+    return remoteInterviews.slice(0, 6).map((i) => {
+      const status =
+        i.status === "COMPLETED" ? "completed" : i.status === "IN_PROGRESS" ? "in-progress" : "pending";
+      const date = new Date(i.scheduledAt ?? i.createdAt ?? Date.now()).toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
+      });
+      return {
+        title: i.jobRole?.title ?? "Interview",
+        date,
+        score: i.feedback?.overallScore ?? null,
+        type: "MIXED" as const,
+        description: status === "completed" ? "View your detailed feedback from this interview." : "Continue your interview session.",
+        status,
+      };
+    });
+  }, [interviewsQuery.data]);
+
+  const roles = useMemo(() => {
+    const remoteRoles = (rolesQuery.data?.roles as any[] | undefined) ?? null;
+    if (!remoteRoles) return fallbackRoles;
+    return remoteRoles.slice(0, 6).map((r) => {
+      const icon = (r.category ?? "").toLowerCase().includes("mobile")
+        ? Smartphone
+        : (r.category ?? "").toLowerCase().includes("backend")
+          ? Cpu
+          : Monitor;
+      const technologies = Array.isArray(r.tags) ? r.tags.join(", ") : "";
+      return { icon, title: r.title, technologies: technologies || r.category || "Interview role" };
+    });
+  }, [rolesQuery.data]);
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -42,7 +98,7 @@ const Dashboard = () => {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">Welcome back, Adrian! 👋</h1>
+            <h1 className="text-3xl font-bold text-foreground">Welcome back, {user?.firstName ?? "there"}!</h1>
             <p className="text-muted-foreground mt-1">Ready to ace your next big interview?</p>
           </div>
           <Button 
@@ -128,33 +184,43 @@ const Dashboard = () => {
                 {interviews.length}
               </span>
             </div>
-            <button className="text-primary text-sm font-medium hover:underline">
+            <button className="text-primary text-sm font-medium hover:underline" onClick={() => navigate("/history")}>
               View All
             </button>
           </div>
           
+          {interviewsQuery.isError ? (
+            <div className="bg-card border border-border rounded-xl p-4 text-sm text-muted-foreground">
+              Failed to load interviews. Showing sample data.
+            </div>
+          ) : null}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {interviews.map((interview, index) => (
-              <InterviewCard key={index} {...interview} />
-            ))}
+            {interviewsQuery.isLoading
+              ? Array.from({ length: 2 }).map((_, i) => (
+                  <div key={i} className="h-[168px] rounded-2xl bg-secondary/30 animate-pulse" />
+                ))
+              : interviews.map((interview, index) => <InterviewCard key={index} {...interview} />)}
           </div>
         </section>
 
         {/* Available Roles */}
         <section>
           <h3 className="text-xl font-semibold text-foreground mb-6">Available Roles</h3>
+          {rolesQuery.isError ? (
+            <div className="bg-card border border-border rounded-xl p-4 text-sm text-muted-foreground mb-6">
+              Failed to load roles. Showing sample data.
+            </div>
+          ) : null}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {roles.map((role, index) => (
-              <RoleCard key={index} {...role} />
-            ))}
-         <div onClick={() => navigate("/add-details")}>
-  <RoleCard
-    icon={Plus}
-    title="Custom Role"
-    isCustom
-  />
-</div>
-
+            {rolesQuery.isLoading
+              ? Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="h-[160px] rounded-2xl bg-secondary/30 animate-pulse" />
+                ))
+              : roles.map((role, index) => <RoleCard key={index} {...role} />)}
+            <div onClick={() => navigate("/add-details")}>
+              <RoleCard icon={Plus} title="Custom Role" isCustom />
+            </div>
           </div>
         </section>
       </main>

@@ -1,13 +1,16 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search, ChevronDown, ChevronLeft, ChevronRight, Play, Eye, Trash2 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { useApi } from "@/lib/api";
 
 const AdminInterviews = () => {
   const [searchQuery, setSearchQuery] = useState("");
+  const api = useApi();
+  const [remote, setRemote] = useState<any[] | null>(null);
 
-  const interviews = [
+  const fallback = [
     { 
       id: 1,
       candidate: "Jane Doe",
@@ -69,6 +72,60 @@ const AdminInterviews = () => {
       color: "hsl(0 84% 60%)"
     },
   ];
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.listInterviewsAdmin();
+        setRemote((res?.interviews as any[]) ?? []);
+      } catch {
+        setRemote(null);
+      }
+    })();
+  }, [searchQuery]);
+
+  const interviews = useMemo(() => {
+    if (!remote) return fallback;
+
+    const toColor = (seed: string) => {
+      let hash = 0;
+      for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+      const hue = hash % 360;
+      return `hsl(${hue} 84% 66%)`;
+    };
+
+    const filtered = searchQuery
+      ? remote.filter((i) => {
+          const email = (i.user?.email ?? "").toLowerCase();
+          const title = (i.jobRole?.title ?? "Interview").toLowerCase();
+          return email.includes(searchQuery.toLowerCase()) || title.includes(searchQuery.toLowerCase());
+        })
+      : remote;
+
+    return filtered.slice(0, 200).map((i) => {
+      const email = i.user?.email ?? "";
+      const candidate = email;
+      const initials = email.slice(0, 2).toUpperCase();
+      const started = i.startedAt ? new Date(i.startedAt).getTime() : null;
+      const ended = i.endedAt ? new Date(i.endedAt).getTime() : null;
+      const durationMinutes = started && ended ? Math.max(1, Math.round((ended - started) / 60000)) : null;
+      const date = new Date(i.createdAt ?? Date.now()).toLocaleDateString();
+      const status =
+        i.status === "COMPLETED" ? "completed" : i.status === "IN_PROGRESS" ? "in-progress" : i.status === "CANCELLED" ? "cancelled" : "scheduled";
+      return {
+        id: i.id,
+        candidate,
+        email,
+        type: i.jobRole?.title ?? "Interview",
+        date,
+        duration: durationMinutes ? `${durationMinutes} min` : "—",
+        score: i.feedback?.overallScore ?? null,
+        status,
+        initials,
+        color: toColor(email),
+      };
+    });
+  }, [remote, searchQuery]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {

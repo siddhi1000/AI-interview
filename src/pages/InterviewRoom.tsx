@@ -12,17 +12,35 @@ import PrepWiseLogo from "@/components/PrepWiseLogo";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import aiInterviewer from "@/assets/ai-interviewer.jpg";
+import { useApi } from "@/lib/api";
+import { toast } from "sonner";
 
 const InterviewRoom = () => {
   const navigate = useNavigate();
+  const api = useApi();
   const [timer, setTimer] = useState(522); // 8:42
   const [isListening, setIsListening] = useState(true);
+  const [interviewId, setInterviewId] = useState<string | null>(null);
 
   useEffect(() => {
     const interval = setInterval(() => {
       setTimer((prev) => prev + 1);
     }, 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.createInterview({});
+        const id = res?.interview?.id as string | undefined;
+        if (!id) return;
+        setInterviewId(id);
+        await api.updateInterview(id, { status: "IN_PROGRESS", startedAt: new Date().toISOString() });
+      } catch (err: any) {
+        toast.error(err.message || "Failed to start interview session.");
+      }
+    })();
   }, []);
 
   const formatTime = (seconds: number) => {
@@ -134,7 +152,16 @@ const InterviewRoom = () => {
               <div className="w-px h-8 bg-border mx-2" />
               <Button 
                 className="h-12 px-8 bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                onClick={() => navigate("/feedback")}
+                onClick={async () => {
+                  try {
+                    if (interviewId) {
+                      await api.updateInterview(interviewId, { status: "COMPLETED", endedAt: new Date().toISOString() });
+                    }
+                  } catch {
+                  } finally {
+                    navigate(`/feedback?interviewId=${encodeURIComponent(interviewId ?? "")}`);
+                  }
+                }}
               >
                 <Phone size={18} className="mr-2 rotate-[135deg]" />
                 End Interview
