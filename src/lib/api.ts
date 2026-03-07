@@ -38,6 +38,11 @@ export const useApi = () => {
       form.append("file", file);
       return authFetch("/api/resumes", { method: "POST", body: form });
     },
+    uploadAudio: (blob: Blob) => {
+      const form = new FormData();
+      form.append("file", blob, "recording.webm");
+      return authFetch("/api/upload/audio", { method: "POST", body: form });
+    },
     listJobRoles: (params?: { q?: string; category?: string; active?: boolean }) => {
       const qs = new URLSearchParams();
       if (params?.q) qs.set("q", params.q);
@@ -59,8 +64,16 @@ export const useApi = () => {
       authFetch(`/api/interviews/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     upsertInterviewFeedback: (id: string, payload: unknown) =>
       authFetch(`/api/interviews/${id}/feedback`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
-    generateInterviewQuestions: (id: string, payload?: unknown) =>
-      authFetch(`/api/interviews/${id}/questions/generate`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload ?? {}) }),
+    generateInterviewQuestions: async (id: string, payload?: unknown) => {
+      // Increase timeout for generation if possible, or handle retry
+      // Frontend fetch defaults are browser dependent.
+      // We can implement a polling mechanism or just wait longer.
+      return authFetch(`/api/interviews/${id}/questions/generate`, { 
+        method: "POST", 
+        headers: { "Content-Type": "application/json" }, 
+        body: JSON.stringify(payload ?? {}) 
+      });
+    },
     listInterviewQuestions: (id: string) => authFetch(`/api/interviews/${id}/questions`),
     submitInterviewAnswers: (id: string, payload: unknown) =>
       authFetch(`/api/interviews/${id}/answers`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
