@@ -1,6 +1,8 @@
+// routes/profile.ts  (or wherever your profile router lives)
+
 import { Router } from "express";
 import { z } from "zod";
-import { prisma } from "../db/prisma";
+import { prisma } from "../db/prisma";           // ← your singleton import
 import { decryptString, encryptString } from "../lib/crypto";
 
 export const profileRouter = Router();
@@ -8,34 +10,56 @@ export const profileRouter = Router();
 const profileUpdateSchema = z.object({
   firstName: z.string().trim().min(1).max(60).optional(),
   lastName: z.string().trim().min(1).max(60).optional(),
-  phone: z.string().trim().max(30).optional().nullable(),
-  location: z.string().trim().max(120).optional().nullable(),
-  education: z.string().trim().max(200).optional().nullable(),
-  experienceLevel: z
-    .enum(["ZERO_TO_ONE", "ONE_TO_THREE", "THREE_TO_FIVE", "FIVE_TO_TEN", "TEN_PLUS"])
+
+  phone: z
+    .string()
+    .trim()
+    .regex(/^[6-9]\d{9}$/, "Invalid Indian mobile number")
     .optional()
     .nullable(),
-  skills: z.string().trim().max(2000).optional().nullable(),
-  bio: z.string().trim().max(2000).optional().nullable(),
-  preferences: z.record(z.any()).optional().nullable(),
-  accountSettings: z.record(z.any()).optional().nullable(),
+
+  location: z.string().trim().max(120).optional().nullable(),
+  education: z.string().trim().max(200).optional().nullable(),
+
+  preferences: z
+    .object({
+      currentRole: z.string().trim().max(120).optional().nullable(),
+      experience: z.number().int().min(0).max(60).optional().nullable(),
+      // you can add more later: industry, preferredLocation, etc.
+    })
+    .optional()
+    .nullable(),
 });
 
 profileRouter.get("/", async (req, res, next) => {
   try {
-    const dbUser = (req as any).dbUser as { id: string };
-    const profile = await prisma.profile.findUnique({ where: { userId: dbUser.id } });
+    const dbUser = (req as any).dbUser; // { id: string } – clerkId
+
+    const profile = await prisma.profile.findUnique({
+      where: { userId: dbUser.id },
+      select: {
+        firstName: true,
+        lastName: true,
+        phoneEncrypted: true,
+        location: true,
+        education: true,
+        preferences: true,
+        // createdAt: true,
+        updatedAt: true,
+      },
+    });
 
     if (!profile) {
-      return res.json({ profile: null });
+      return res.status(200).json({ profile: null });
     }
 
     const phone = profile.phoneEncrypted ? decryptString(profile.phoneEncrypted) : null;
-    return res.json({
+
+    res.json({
       profile: {
         ...profile,
         phone,
-        phoneEncrypted: undefined,
+        phoneEncrypted: undefined, // never send encrypted value
       },
     });
   } catch (err) {
@@ -45,43 +69,52 @@ profileRouter.get("/", async (req, res, next) => {
 
 profileRouter.put("/", async (req, res, next) => {
   try {
-    const dbUser = (req as any).dbUser as { id: string };
-    const input = profileUpdateSchema.parse(req.body ?? {});
+    const dbUser = (req as any).dbUser; // { id: string }
+
+    const input = profileUpdateSchema.parse(req.body);
 
     const phoneEncrypted =
-      input.phone === undefined ? undefined : input.phone ? encryptString(input.phone) : null;
+      input.phone === undefined
+        ? undefined
+        : input.phone
+          ? encryptString(input.phone)
+          : null;
 
     const profile = await prisma.profile.upsert({
       where: { userId: dbUser.id },
+
       create: {
         userId: dbUser.id,
         firstName: input.firstName ?? null,
         lastName: input.lastName ?? null,
-        phoneEncrypted: phoneEncrypted ?? null,
+        phoneEncrypted,
         location: input.location ?? null,
         education: input.education ?? null,
-        experienceLevel: input.experienceLevel ?? null,
-        skills: input.skills ?? null,
-        bio: input.bio ?? null,
         preferences: input.preferences ?? undefined,
-        accountSettings: input.accountSettings ?? undefined,
       },
+
       update: {
-        firstName: input.firstName ?? undefined,
-        lastName: input.lastName ?? undefined,
+        firstName: input.firstName,
+        lastName: input.lastName,
         phoneEncrypted,
-        location: input.location ?? undefined,
-        education: input.education ?? undefined,
-        experienceLevel: input.experienceLevel ?? undefined,
-        skills: input.skills ?? undefined,
-        bio: input.bio ?? undefined,
-        preferences: input.preferences ?? undefined,
-        accountSettings: input.accountSettings ?? undefined,
+        location: input.location,
+        education: input.education,
+        // preferences: input.preferences,
+      },
+
+      select: {
+        firstName: true,
+        lastName: true,
+        phoneEncrypted: true,
+        location: true,
+        education: true,
+        preferences: true,
       },
     });
 
     const phone = profile.phoneEncrypted ? decryptString(profile.phoneEncrypted) : null;
-    return res.json({
+
+    res.json({
       profile: {
         ...profile,
         phone,
@@ -92,4 +125,3 @@ profileRouter.put("/", async (req, res, next) => {
     next(err);
   }
 });
-

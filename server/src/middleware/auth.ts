@@ -1,51 +1,92 @@
-import type { Request, Response, NextFunction } from "express";
-import { clerkClient, getAuth, requireAuth } from "@clerk/express";
+import { Request, Response, NextFunction } from "express";
+import { getAuth, clerkClient } from "@clerk/express";
 import { prisma } from "../db/prisma";
-import { HttpError } from "../lib/httpError";
 
-export const requireClerkAuth = () => requireAuth();
+/**
+ * Require authentication
+ */
+export const requireClerkAuth = () => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const { userId } = getAuth(req);
 
-export const attachDbUser = async (req: Request, _res: Response, next: NextFunction) => {
-  try {
-    const auth = getAuth(req);
-    if (!auth.userId) throw new HttpError(401, "Unauthorized");
-
-    let email =
-      ((auth.sessionClaims as any)?.email as string | undefined) ??
-      ((auth.sessionClaims as any)?.primaryEmailAddress as string | undefined) ??
-      "";
-    if (!email) {
-      const clerkUser = await clerkClient.users.getUser(auth.userId);
-      email = clerkUser.primaryEmailAddress?.emailAddress ?? "";
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
     }
-    const allowlistRaw = process.env.ADMIN_EMAIL_ALLOWLIST ?? "";
-    const allowlistedEmails = allowlistRaw
-      .split(",")
-      .map((v) => v.trim().toLowerCase())
-      .filter(Boolean);
-    const isAllowlistedAdmin = email ? allowlistedEmails.includes(email.toLowerCase()) : false;
 
-    const roleClaim = ((auth.sessionClaims as any)?.publicMetadata?.role as string | undefined) ?? undefined;
-    const role = isAllowlistedAdmin ? "ADMIN" : roleClaim === "admin" ? "ADMIN" : "CANDIDATE";
+    next();
+  };
+};
 
+/**
+ * Attach DB user + Sync real name from Clerk (ONE-TIME)
+ */
+export const attachDbUser = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { userId } = getAuth(req);
+
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // Fetch real user data from Clerk (only if needed)
+    const clerkUser = await clerkClient.users.getUser(userId);
+
+    // Build clean display name (never use user_xxx)
+    const firstName = clerkUser.firstName?.trim() || "";
+    const lastName = clerkUser.lastName?.trim() || "";
+    const username = clerkUser.username?.trim() || "";
+    
+    const cleanName = [firstName, lastName].filter(Boolean).join(" ") || 
+                     username || 
+                     clerkUser.emailAddresses[0]?.emailAddress?.split("@")[0] || 
+                     "Candidate";
+
+    const primaryEmail = clerkUser.primaryEmailAddress?.emailAddress || 
+                        clerkUser.emailAddresses[0]?.emailAddress || 
+                        `${userId}@placeholder.com`;
+
+    // Upsert with REAL name (this is the key fix)
     const user = await prisma.user.upsert({
-      where: { clerkUserId: auth.userId },
-      create: { clerkUserId: auth.userId, email: email || auth.userId, role },
-      update: { email: email || auth.userId, role },
+      where: { clerkUserId: userId },
+      create: {
+        clerkUserId: userId,
+        email: primaryEmail,
+        name: cleanName,           // ← Real name stored here
+        role: "CANDIDATE",
+      },
+      update: {
+        email: primaryEmail,
+        name: cleanName,           // ← Update name if changed in Clerk
+      },
       include: { profile: true },
     });
 
     (req as any).dbUser = user;
+
     next();
-  } catch (err) {
-    next(err);
+  } catch (error) {
+    console.error("attachDbUser error:", error);
+    next(error);
   }
 };
 
-export const requireAdmin = (req: Request, _res: Response, next: NextFunction) => {
-  const dbUser = (req as any).dbUser as { role?: string } | undefined;
-  if (!dbUser) return next(new HttpError(401, "Unauthorized"));
-  if (dbUser.role !== "ADMIN") return next(new HttpError(403, "Forbidden"));
-  return next();
-};
+/**
+ * Require admin
+ */
+export const requireAdmin = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const dbUser = (req as any).dbUser;
 
+  if (!dbUser || dbUser.role !== "ADMIN") {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+
+  next();
+};
