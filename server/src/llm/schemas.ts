@@ -25,3 +25,10 @@ export const assessmentSchema = z.object({
   summary: z.string().min(10).max(2000),
 });
 
+export const answerFeedbackSchema = z.object({
+  score: z.number().int().min(0).max(100),
+  feedback: z.string().min(10).max(1000),
+  keyGap: z.string().optional(),
+  isStrongAnswer: z.boolean(),
+});
+

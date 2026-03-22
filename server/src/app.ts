@@ -8,7 +8,13 @@ import { resumesRouter } from "./routes/resumes";
 import { jobRolesRouter } from "./routes/jobRoles";
 import { interviewsRouter } from "./routes/interviews";
 import { adminRouter } from "./routes/admin";
+<<<<<<< HEAD
 import { attachDbUser, requireClerkAuth, requireAdmin } from "./middleware/auth";
+=======
+import { uploadRouter } from "./routes/upload";
+import { attachDbUser, requireClerkAuth } from "./middleware/auth";
+import { requireAdmin } from "./middleware/auth";
+>>>>>>> siddhi
 import { errorHandler } from "./middleware/error";
 import { prisma } from "./db/prisma";
 
@@ -94,6 +100,7 @@ export const createApp = () => {
   app.use("/api/resumes", resumesRouter);
   app.use("/api/interviews", interviewsRouter);
   app.use("/api/job-roles", jobRolesRouter);
+  app.use("/api/upload", uploadRouter);
   app.use("/api/admin", requireAdmin, adminRouter);
 
   // ---------------- ERROR HANDLER ----------------

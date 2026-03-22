@@ -1,12 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { 
   Video, 
   Mic, 
+  MicOff,
   Settings, 
   Phone, 
   AlignLeft,
-  Volume2
+  Volume2,
+  Play,
+  CheckCircle,
+  AlertCircle,
+  Loader2,
+  ArrowRight
 } from "lucide-react";
 import PrepWiseLogo from "@/components/PrepWiseLogo";
 import { Button } from "@/components/ui/button";
@@ -14,17 +20,31 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import aiInterviewer from "@/assets/ai-interviewer.jpg";
 import { useApi } from "@/lib/api";
 import { toast } from "sonner";
+import { useSpeechSynthesis } from "@/hooks/useSpeechSynthesis";
+import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+import { useMediaRecorder } from "@/hooks/useMediaRecorder";
 
 const InterviewRoom = () => {
   const navigate = useNavigate();
   const api = useApi();
-  const [timer, setTimer] = useState(522); // 8:42
-  const [isListening, setIsListening] = useState(true);
+  const [timer, setTimer] = useState(0);
   const [interviewId, setInterviewId] = useState<string | null>(null);
   const [questions, setQuestions] = useState<any[]>([]);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [generating, setGenerating] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  
+  // Interactive state
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [interviewState, setInterviewState] = useState<"IDLE" | "GENERATING" | "READY" | "ACTIVE" | "COMPLETED">("IDLE");
+  const [isProcessing, setIsProcessing] = useState(false);
+  
+  // Audio hooks
+  const { speak, cancel: cancelSpeech, speaking: aiSpeaking } = useSpeechSynthesis();
+  const { listening, transcript, startListening, stopListening, supported: sttSupported } = useSpeechRecognition();
+  const { startRecording, stopRecording } = useMediaRecorder();
+  
+  // Track answer per question
+  const [currentAnswer, setCurrentAnswer] = useState("");
+  const [answers, setAnswers] = useState<Record<string, string>>({});
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -33,6 +53,14 @@ const InterviewRoom = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // Sync transcript to current answer
+  useEffect(() => {
+    if (transcript) {
+      setCurrentAnswer(transcript);
+    }
+  }, [transcript]);
+
+  // Initial setup
   useEffect(() => {
     (async () => {
       try {
@@ -40,17 +68,48 @@ const InterviewRoom = () => {
         const id = res?.interview?.id as string | undefined;
         if (!id) return;
         setInterviewId(id);
+        
+        // Load full interview details to restore state if resuming
+        const fullInterview = await api.getInterview(id);
+        const savedAnswers = fullInterview?.interview?.answers || [];
+        const answersMap: Record<string, string> = {};
+        savedAnswers.forEach((a: any) => {
+          answersMap[a.questionId] = a.answerText;
+        });
+        setAnswers(answersMap);
+
+        if (fullInterview?.interview?.status === "COMPLETED") {
+             setInterviewState("COMPLETED");
+             return;
+        }
+
         await api.updateInterview(id, { status: "IN_PROGRESS", startedAt: new Date().toISOString() });
-        try {
-          setGenerating(true);
-          const q = await api.generateInterviewQuestions(id, { questionCount: 8, difficultyTarget: "MEDIUM" });
-          const qs = (q?.questions as any[]) ?? [];
-          setQuestions(qs);
-          setAnswers({});
-        } catch (err: any) {
-          toast.error(err.message || "Failed to generate questions.");
-        } finally {
-          setGenerating(false);
+        
+        // Auto-generate questions on load if not present
+        const existingQuestions = fullInterview?.interview?.questions || [];
+        if (existingQuestions.length > 0) {
+           setQuestions(existingQuestions);
+           // If we have answers, maybe jump to the first unanswered question?
+           const firstUnansweredIdx = existingQuestions.findIndex((q: any) => !answersMap[q.id]);
+           if (firstUnansweredIdx >= 0) {
+             setCurrentQuestionIndex(firstUnansweredIdx);
+           }
+           setInterviewState("READY");
+           setGenerating(false);
+        } else {
+            setInterviewState("GENERATING");
+            setGenerating(true);
+            try {
+              const q = await api.generateInterviewQuestions(id, { questionCount: 8, difficultyTarget: "MEDIUM" });
+              const qs = (q?.questions as any[]) ?? [];
+              setQuestions(qs);
+              setInterviewState("READY");
+            } catch (err: any) {
+              toast.error(err.message || "Failed to generate questions.");
+              setInterviewState("IDLE");
+            } finally {
+              setGenerating(false);
+            }
         }
       } catch (err: any) {
         toast.error(err.message || "Failed to start interview session.");
@@ -58,24 +117,100 @@ const InterviewRoom = () => {
     })();
   }, []);
 
+  // Handle speaking the current question when index changes or state becomes ACTIVE
+  useEffect(() => {
+    if (interviewState === "ACTIVE" && questions[currentQuestionIndex]) {
+      const q = questions[currentQuestionIndex];
+      speak(q.question, () => {
+        // Auto-start listening after question is read
+        if (sttSupported) {
+          startListening();
+          startRecording();
+        }
+      });
+    }
+  }, [currentQuestionIndex, interviewState, questions]);
+
+  const handleStartInterview = () => {
+    setInterviewState("ACTIVE");
+    setCurrentQuestionIndex(0);
+  };
+
+  const handleNextQuestion = async () => {
+    // 1. Save current answer locally
+    const q = questions[currentQuestionIndex];
+    if (!q) return;
+    
+    // Stop listening if active
+    stopListening();
+    cancelSpeech();
+    
+    // Stop recording and get blob
+    let audioUrl: string | null = null;
+    try {
+      const audioBlob = await stopRecording();
+      if (audioBlob && audioBlob.size > 0) {
+        const uploadRes = await api.uploadAudio(audioBlob);
+        audioUrl = uploadRes?.url || null;
+      }
+    } catch (e) {
+      console.error("Failed to upload audio", e);
+    }
+
+    const answerText = currentAnswer.trim() || answers[q.id] || "(No answer provided)";
+    setAnswers(prev => ({ ...prev, [q.id]: answerText }));
+    
+    setIsProcessing(true);
+    
+    try {
+      // 2. Submit partial answer to backend (incremental save)
+      if (interviewId) {
+        const payload = {
+          answers: [{ questionId: q.id, answerText: answerText, audioUrl }]
+        };
+        // @ts-ignore
+        await api.submitInterviewAnswers(interviewId, payload);
+      }
+      
+      if (currentQuestionIndex < questions.length - 1) {
+        setCurrentQuestionIndex(prev => prev + 1);
+        setCurrentAnswer(""); // Clear for next
+      } else {
+        await finishInterview();
+      }
+    } catch (err: any) {
+      toast.error("Failed to save answer: " + err.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const finishInterview = async () => {
+    if (!interviewId) return;
+    setInterviewState("COMPLETED");
+    setIsProcessing(true);
+    
+    try {
+      await api.generateInterviewAssessment(interviewId);
+      
+      await api.updateInterview(interviewId, { status: "COMPLETED", endedAt: new Date().toISOString() });
+      toast.success("Interview completed!");
+      navigate(`/feedback?interviewId=${encodeURIComponent(interviewId)}`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to submit interview.");
+      setInterviewState("ACTIVE"); // Revert if failed
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const messages = [
-    {
-      role: "ai",
-      time: "10:40 AM",
-      content: "That's a great explanation of how React handles virtual DOM diffing. Now, could you walk me through how you would optimize a component that is re-rendering too frequently in a large-scale application?"
-    },
-    {
-      role: "user",
-      time: "10:41 AM",
-      content: "Sure. To optimize that, I'd first start by profiling the app with the React DevTools to identify the exact cause. Usually, I'd look into using React.memo for functional components..."
-    }
-  ];
+  const currentQ = questions[currentQuestionIndex];
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -85,9 +220,10 @@ const InterviewRoom = () => {
           <PrepWiseLogo size="sm" />
           <div className="h-6 w-px bg-border" />
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-destructive animate-pulse" />
-            <span className="text-sm text-muted-foreground">INTERVIEW IN PROGRESS:</span>
-            <span className="text-sm font-medium text-foreground">Senior Frontend Role</span>
+            <span className={`h-2 w-2 rounded-full ${interviewState === "ACTIVE" ? "bg-destructive animate-pulse" : "bg-muted"}`} />
+            <span className="text-sm text-muted-foreground">
+              {interviewState === "ACTIVE" ? "LIVE INTERVIEW" : "PREPARING SESSION"}
+            </span>
           </div>
         </div>
         
@@ -96,194 +232,220 @@ const InterviewRoom = () => {
             {formatTime(timer)}
           </div>
           <Avatar className="h-10 w-10 border-2 border-success">
-            <AvatarFallback className="bg-success text-success-foreground">L</AvatarFallback>
+            <AvatarFallback className="bg-success text-success-foreground">AI</AvatarFallback>
           </Avatar>
         </div>
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 flex gap-6 p-6">
-        {/* Video Area */}
-        <div className="flex-1 flex flex-col">
-          <div className="flex-1 bg-card rounded-2xl border border-border overflow-hidden relative flex items-center justify-center">
-            {/* AI Interviewer Display */}
-            <div className="text-center">
-              <div className="w-64 h-64 rounded-full border-4 border-secondary overflow-hidden mx-auto mb-6 relative">
-                <div className="absolute inset-0 rounded-full border-4 border-primary/30 animate-pulse" />
+      <div className="flex-1 flex gap-6 p-6 overflow-hidden">
+        {/* Left: AI Avatar & Controls */}
+        <div className="flex-1 flex flex-col min-w-0">
+          <div className="flex-1 bg-card rounded-2xl border border-border overflow-hidden relative flex flex-col items-center justify-center p-8">
+            
+            {/* AI Visual */}
+            <div className="relative mb-8">
+              <div className={`w-48 h-48 lg:w-64 lg:h-64 rounded-full border-4 ${aiSpeaking ? "border-primary animate-pulse" : "border-secondary"} overflow-hidden relative transition-all duration-300`}>
                 <img 
                   src={aiInterviewer} 
                   alt="AI Interviewer" 
                   className="w-full h-full object-cover"
                 />
+                {/* Overlay when speaking */}
+                {aiSpeaking && (
+                  <div className="absolute inset-0 bg-primary/10 flex items-center justify-center">
+                    <Volume2 className="text-white w-12 h-12 animate-bounce" />
+                  </div>
+                )}
               </div>
-              <h2 className="text-2xl font-bold text-foreground mb-2">AI Interviewer</h2>
-              <div className="flex items-center justify-center gap-2 text-primary">
-                <Volume2 size={18} className="animate-pulse" />
-                <span className="text-sm uppercase tracking-wider">
-                  {isListening ? "Listening..." : "Speaking..."}
-                </span>
+              <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-background border border-border rounded-full shadow-sm flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${aiSpeaking ? "bg-green-500" : "bg-slate-400"}`} />
+                <span className="text-xs font-medium whitespace-nowrap">AI Interviewer</span>
               </div>
             </div>
 
-            {/* User Video Thumbnail */}
-            <div className="absolute bottom-6 left-6 w-40 h-28 bg-secondary rounded-xl border border-border overflow-hidden">
-              <div className="w-full h-full flex items-center justify-center bg-secondary">
-                <div className="h-12 w-12 rounded-full bg-primary/20 flex items-center justify-center">
-                  <Video className="text-primary" size={24} />
-                </div>
+            {/* Status Text */}
+            <div className="h-8 mb-4">
+              {aiSpeaking ? (
+                <p className="text-primary font-medium animate-pulse">Speaking question...</p>
+              ) : listening ? (
+                <p className="text-green-500 font-medium animate-pulse">Listening to you...</p>
+              ) : interviewState === "ACTIVE" ? (
+                <p className="text-muted-foreground">Waiting for your answer...</p>
+              ) : (
+                <p className="text-muted-foreground">Session Ready</p>
+              )}
+            </div>
+
+            {/* Audio Visualizer Bar (Fake) */}
+            <div className="flex items-end justify-center gap-1 h-12 w-64 mb-8">
+              {[...Array(20)].map((_, i) => (
+                <div 
+                  key={i}
+                  className={`w-1.5 rounded-t-sm transition-all duration-75 ${
+                    (aiSpeaking || listening) ? "bg-primary" : "bg-secondary"
+                  }`}
+                  style={{ 
+                    height: (aiSpeaking || listening) ? `${Math.random() * 100}%` : "4px",
+                    opacity: (aiSpeaking || listening) ? 1 : 0.3
+                  }}
+                />
+              ))}
+            </div>
+
+            {/* User Video Pip */}
+            <div className="absolute bottom-6 left-6 w-48 h-32 bg-black rounded-xl border border-border overflow-hidden shadow-lg">
+              <div className="w-full h-full flex items-center justify-center bg-zinc-900">
+                <Video className="text-zinc-600" size={32} />
               </div>
-              <div className="absolute bottom-2 left-2 px-2 py-1 bg-background/80 rounded text-xs text-foreground">
-                You (Adrian)
+              <div className="absolute bottom-2 left-2 flex items-center gap-2">
+                <div className={`p-1 rounded-full ${listening ? "bg-green-500" : "bg-red-500/80"}`}>
+                  {listening ? <Mic size={10} className="text-white" /> : <MicOff size={10} className="text-white" />}
+                </div>
+                <span className="text-xs text-white font-medium drop-shadow-md">You</span>
               </div>
             </div>
           </div>
 
-          {/* Controls */}
-          <div className="mt-6 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="text-xs text-muted-foreground uppercase tracking-wider">Input Volume</div>
-              <div className="flex gap-1">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <div 
-                    key={i} 
-                    className={`w-1 rounded-full ${i <= 3 ? "bg-primary" : "bg-secondary"}`}
-                    style={{ height: `${8 + i * 4}px` }}
-                  />
-                ))}
-              </div>
-              <span className="text-success text-sm">Noise reduction Active</span>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <Button variant="outline" size="icon" className="h-12 w-12 rounded-full border-border">
-                <Video size={20} />
-              </Button>
-              <Button variant="outline" size="icon" className="h-12 w-12 rounded-full border-border">
-                <Mic size={20} />
-              </Button>
-              <Button variant="outline" size="icon" className="h-12 w-12 rounded-full border-border">
-                <Settings size={20} />
-              </Button>
-              <div className="w-px h-8 bg-border mx-2" />
-              <Button 
-                className="h-12 px-8 bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                onClick={async () => {
-                  try {
-                    if (interviewId) {
-                      await api.updateInterview(interviewId, { status: "COMPLETED", endedAt: new Date().toISOString() });
-                    }
-                  } catch {
-                  } finally {
-                    navigate(`/feedback?interviewId=${encodeURIComponent(interviewId ?? "")}`);
+          {/* Bottom Control Bar */}
+          <div className="mt-6 h-20 bg-card border border-border rounded-xl px-6 flex items-center justify-between">
+             <div className="flex items-center gap-4">
+               <Button 
+                variant={listening ? "default" : "outline"}
+                size="icon" 
+                className={`h-12 w-12 rounded-full ${listening ? "bg-red-500 hover:bg-red-600 text-white border-none" : ""}`}
+                onClick={() => {
+                  if (listening) {
+                    stopListening();
+                    // We don't stop recording here, we let it run until Next Question or manually stopped
+                    // But typically stopListening implies stop interaction. 
+                    // Let's keep recording running until the end of the answer to capture full context or pause it?
+                    // Simpler: Just toggle both.
+                    // stopRecording(); // Actually we want to keep one recording per question session or multiple?
+                    // The hook handles one stream. Let's stop it too.
+                    stopRecording().then(blob => {
+                       // If user stops manually, we might want to stash the blob?
+                       // For now, let's assume manual toggle is just for pause/resume of STT
+                       // But MediaRecorder doesn't support pause well in this hook.
+                       // Let's NOT stop recording on manual toggle, only on "Next".
+                       // Or better: Restarting listening should restart recording if it was stopped.
+                    });
+                  } else {
+                    startListening();
+                    startRecording();
                   }
                 }}
+                disabled={!sttSupported || interviewState !== "ACTIVE" || aiSpeaking}
               >
-                <Phone size={18} className="mr-2 rotate-[135deg]" />
-                End Interview
+                {listening ? <MicOff size={20} /> : <Mic size={20} />}
               </Button>
-            </div>
+               {!sttSupported && <span className="text-xs text-destructive">Browser STT not supported</span>}
+             </div>
 
-            <button className="text-muted-foreground text-sm hover:text-foreground flex items-center gap-2">
-              <span className="text-lg">?</span>
-              Technical difficulties?
-            </button>
+             <div className="flex items-center gap-4">
+               {interviewState === "READY" && (
+                 <Button 
+                   className="h-12 px-8 gradient-primary text-primary-foreground text-lg shadow-lg shadow-primary/20 hover:scale-105 transition-transform"
+                   onClick={handleStartInterview}
+                 >
+                   <Play size={20} className="mr-2 fill-current" />
+                   Start Interview
+                 </Button>
+               )}
+
+               {interviewState === "ACTIVE" && (
+                 <Button 
+                   className="h-12 px-8 gradient-primary text-primary-foreground"
+                   onClick={handleNextQuestion}
+                   disabled={isProcessing || aiSpeaking}
+                 >
+                   {isProcessing ? (
+                     <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                   ) : currentQuestionIndex < questions.length - 1 ? (
+                     <>
+                       Next Question <ArrowRight className="ml-2 h-5 w-5" />
+                     </>
+                   ) : (
+                     <>
+                       Finish & Submit <CheckCircle className="ml-2 h-5 w-5" />
+                     </>
+                   )}
+                 </Button>
+               )}
+             </div>
+
+             <div className="flex items-center gap-4">
+               <Button variant="ghost" size="icon" className="h-10 w-10 text-destructive hover:bg-destructive/10"
+                 onClick={() => navigate("/dashboard")}
+               >
+                 <Phone size={20} className="rotate-[135deg]" />
+               </Button>
+             </div>
           </div>
         </div>
 
-        {/* Transcription Panel */}
-        <div className="w-96 bg-card rounded-2xl border border-border flex flex-col overflow-hidden">
-          <div className="p-4 border-b border-border flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <AlignLeft size={18} className="text-muted-foreground" />
-              <span className="font-semibold text-foreground">Interview Questions</span>
-            </div>
-            <span className="text-xs text-muted-foreground uppercase tracking-wider">
-              {generating ? "Generating" : questions.length ? `${questions.length} Loaded` : "Ready"}
-            </span>
+        {/* Right: Question & Transcript */}
+        <div className="w-[400px] bg-card rounded-2xl border border-border flex flex-col overflow-hidden">
+          <div className="p-4 border-b border-border bg-secondary/20">
+            <h3 className="font-semibold text-foreground flex items-center gap-2">
+              <AlignLeft size={18} />
+              {interviewState === "ACTIVE" ? `Question ${currentQuestionIndex + 1} of ${questions.length}` : "Interview Script"}
+            </h3>
           </div>
 
-          <div className="flex-1 p-4 space-y-6 overflow-auto">
-            {questions.length === 0 ? (
-              <div className="space-y-4">
-                <div className="text-sm text-muted-foreground">
-                  {generating ? "Generating interview questions..." : "No questions yet. Generate a question set to begin."}
-                </div>
-                <Button
-                  className="w-full gradient-primary text-primary-foreground"
-                  disabled={!interviewId || generating}
-                  onClick={async () => {
-                    if (!interviewId) return;
-                    setGenerating(true);
-                    try {
-                      const q = await api.generateInterviewQuestions(interviewId, { questionCount: 8, difficultyTarget: "MEDIUM" });
-                      const qs = (q?.questions as any[]) ?? [];
-                      setQuestions(qs);
-                      setAnswers({});
-                    } catch (err: any) {
-                      toast.error(err.message || "Failed to generate questions.");
-                    } finally {
-                      setGenerating(false);
-                    }
-                  }}
-                >
-                  {generating ? "Generating..." : "Generate Questions"}
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-6">
-                {questions.map((q) => (
-                  <div key={q.id} className="space-y-2">
-                    <div className="text-xs text-muted-foreground uppercase tracking-wider">
-                      Q{q.order} • {q.type} • {q.difficulty}
-                    </div>
-                    <div className="p-4 rounded-xl bg-secondary text-foreground">
-                      <p className="text-sm leading-relaxed">{q.question}</p>
-                    </div>
-                    <textarea
-                      className="w-full min-h-[96px] rounded-xl bg-background border border-border p-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-primary"
-                      placeholder="Type your answer..."
-                      value={answers[q.id] ?? ""}
-                      onChange={(e) => setAnswers((prev) => ({ ...prev, [q.id]: e.target.value }))}
-                    />
-                  </div>
-                ))}
-
-                <Button
-                  className="w-full gradient-primary text-primary-foreground"
-                  disabled={!interviewId || submitting}
-                  onClick={async () => {
-                    if (!interviewId) return;
-                    setSubmitting(true);
-                    try {
-                      const payload = {
-                        answers: questions.map((q) => ({ questionId: q.id, answerText: (answers[q.id] ?? "").trim() })),
-                      };
-                      const missing = payload.answers.find((a) => !a.answerText);
-                      if (missing) {
-                        toast.error("Please answer all questions before submitting.");
-                        return;
-                      }
-                      await api.submitInterviewAnswers(interviewId, payload);
-                      await api.generateInterviewAssessment(interviewId);
-                      toast.success("Assessment generated.");
-                      navigate(`/feedback?interviewId=${encodeURIComponent(interviewId)}`);
-                    } catch (err: any) {
-                      toast.error(err.message || "Failed to generate assessment.");
-                    } finally {
-                      setSubmitting(false);
-                    }
-                  }}
-                >
-                  {submitting ? "Submitting..." : "Submit Answers & Generate Feedback"}
-                </Button>
+          <div className="flex-1 p-6 overflow-auto flex flex-col gap-6">
+            {interviewState === "GENERATING" && (
+              <div className="flex flex-col items-center justify-center h-full text-center space-y-4">
+                <Loader2 className="h-8 w-8 text-primary animate-spin" />
+                <p className="text-muted-foreground">Generating interview questions based on your profile...</p>
               </div>
             )}
-          </div>
 
-          <div className="p-4 border-t border-border">
-            <p className="text-center text-muted-foreground text-sm">
-              Questions are generated from your resume and saved profile.
-            </p>
+            {interviewState === "READY" && (
+              <div className="text-center space-y-4 my-auto">
+                <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto text-primary">
+                  <CheckCircle size={32} />
+                </div>
+                <h4 className="text-xl font-bold">You're all set!</h4>
+                <p className="text-muted-foreground text-sm">
+                  We've prepared {questions.length} questions for you. 
+                  Ensure your microphone is ready and click Start to begin.
+                </p>
+              </div>
+            )}
+
+            {interviewState === "ACTIVE" && currentQ && (
+              <>
+                {/* Active Question Card */}
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                  <div className="text-xs font-bold text-primary mb-2 uppercase tracking-wider">
+                    Current Question
+                  </div>
+                  <div className="p-5 bg-background border border-border rounded-xl shadow-sm text-lg font-medium leading-relaxed">
+                    {currentQ.question}
+                  </div>
+                </div>
+
+                {/* Live Transcript */}
+                <div className="flex-1 min-h-[200px] flex flex-col">
+                  <div className="text-xs font-bold text-muted-foreground mb-2 uppercase tracking-wider flex justify-between">
+                    <span>Your Answer (Transcript)</span>
+                    {listening && <span className="text-green-500 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"/> Live</span>}
+                  </div>
+                  <textarea
+                    className="flex-1 w-full bg-secondary/30 border border-border rounded-xl p-4 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                    placeholder={sttSupported ? "Speak your answer... (transcript will appear here)" : "Type your answer here..."}
+                    value={currentAnswer}
+                    onChange={(e) => setCurrentAnswer(e.target.value)}
+                  />
+                  {!sttSupported && (
+                    <p className="text-xs text-orange-500 mt-2 flex items-center gap-1">
+                      <AlertCircle size={12} /> Microphone not supported in this browser. Please type your answer.
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>

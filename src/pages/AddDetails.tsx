@@ -74,8 +74,21 @@ const AddDetails = () => {
                   preferences: role ? { targetRole: role } : undefined,
                 };
                 await api.upsertProfile(payload);
-                toast.success("Details saved.");
-                navigate("/interview");
+                
+                // Create the interview immediately after profile setup
+                // We need to map the selected role to a jobRoleId or null
+                // For now, we'll create a generic interview or use the role if it matches a DB role
+                // Since "role" state is a string like "frontend", we might need to find a matching JobRole or pass null
+                // The backend can handle jobRoleId: null and fallback to profile preferences
+                
+                const interviewRes = await api.createInterview({
+                   // If we had a jobRoleId we would pass it here
+                   // For now, we rely on the backend using the user's profile preferences to contextually generate questions
+                });
+                
+                toast.success("Details saved. Starting interview...");
+                // @ts-ignore
+                navigate(`/interview/${interviewRes?.interview?.id}`);
               } catch (err: any) {
                 toast.error(err.message || "Failed to save details.");
               } finally {

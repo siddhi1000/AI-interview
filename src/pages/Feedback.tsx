@@ -20,6 +20,9 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useApi } from "@/lib/api";
 import { toast } from "sonner";
 
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
+
 const Feedback = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -27,6 +30,7 @@ const Feedback = () => {
   const [searchParams] = useSearchParams();
   const interviewId = searchParams.get("interviewId") || "";
   const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [interview, setInterview] = useState<any | null>(null);
 
   useEffect(() => {
@@ -50,9 +54,34 @@ const Feedback = () => {
   const improvements: string[] = assessment?.improvements ?? interview?.feedback?.categoryScores?.improvements ?? [];
 
   const overallScore = useMemo(() => {
+    // If we have an assessment object (from DB), use it.
+    // Otherwise fallback to legacy feedback.
+    // And if still 0, maybe the assessment isn't generated yet?
     const score = assessment?.overallScore ?? interview?.feedback?.overallScore ?? 0;
     return typeof score === "number" ? score : 0;
-  }, [assessment?.overallScore, interview?.feedback?.overallScore]);
+  }, [assessment, interview]);
+
+  // Poll for assessment if not present and interview is COMPLETED
+  useEffect(() => {
+    if (!interviewId || assessment || interview?.feedback) return;
+    
+    // If interview is loaded but no assessment, maybe it's still generating?
+    // We can try to generate it if it's missing (idempotent)
+    const generate = async () => {
+       try {
+         const res = await api.generateInterviewAssessment(interviewId);
+         if (res?.assessment) {
+            setInterview((prev: any) => ({ ...prev, assessment: res.assessment }));
+         }
+       } catch(e) {
+         console.error("Auto-generate assessment failed", e);
+       }
+    };
+    
+    if (interview && !loading) {
+       generate();
+    }
+  }, [interviewId, interview, assessment, loading]);
 
   const categories = useMemo(() => {
     const s = strengths.slice(0, 3).join(" ");
@@ -90,6 +119,40 @@ const Feedback = () => {
     ];
   }, [rubric, strengths, improvements]);
 
+  const handleDownloadPdf = async () => {
+    const element = document.getElementById("feedback-content");
+    if (!element) return;
+    
+    setDownloading(true);
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2, // Better resolution
+        useCORS: true, // Handle images
+        logging: false,
+        backgroundColor: "#ffffff"
+      });
+      
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF({
+        orientation: "portrait",
+        unit: "mm",
+        format: "a4"
+      });
+      
+      const imgWidth = 210; // A4 width in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      
+      pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight);
+      pdf.save(`Interview-Feedback-${interviewId.slice(0, 8)}.pdf`);
+      toast.success("PDF downloaded successfully!");
+    } catch (err) {
+      console.error("PDF generation failed", err);
+      toast.error("Failed to generate PDF.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const title = interview?.jobRole?.title ? `Feedback on the Interview - ${interview.jobRole.title}` : "Interview Feedback";
   const summary = assessment?.summary ?? interview?.feedback?.notes ?? "";
   const interviewDate = interview?.endedAt ?? interview?.createdAt ?? null;
@@ -109,11 +172,12 @@ const Feedback = () => {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto p-8">
-        {/* Back Button */}
+      <main className="max-w-4xl mx-auto p-8" id="feedback-content">
+        {/* Back Button - Hide in PDF */}
         <button 
           onClick={() => navigate(location.pathname.startsWith("/admin") ? "/admin/interviews" : "/dashboard")}
-          className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors"
+          className="flex items-center gap-2 text-muted-foreground hover:text-foreground mb-6 transition-colors data-[html2canvas-ignore]:hidden"
+          data-html2canvas-ignore="true"
         >
           <ArrowLeft size={18} />
           <span className="text-sm">{location.pathname.startsWith("/admin") ? "Back to Interviews" : "Back to Dashboard"}</span>
@@ -153,11 +217,17 @@ const Feedback = () => {
 
           <div className="flex-1" />
 
-          <Button variant="outline" className="border-border">
+          <Button 
+            variant="outline" 
+            className="border-border data-[html2canvas-ignore]:hidden" 
+            onClick={handleDownloadPdf}
+            disabled={downloading}
+            data-html2canvas-ignore="true"
+          >
             <Download size={18} className="mr-2" />
-            Download PDF
+            {downloading ? "Generating..." : "Download PDF"}
           </Button>
-          <Button className="gradient-primary text-primary-foreground">
+          <Button className="gradient-primary text-primary-foreground data-[html2canvas-ignore]:hidden" data-html2canvas-ignore="true">
             <Share2 size={18} className="mr-2" />
             Share Report
           </Button>
@@ -202,7 +272,7 @@ const Feedback = () => {
         </section>
 
         {/* CTA */}
-        <div className="mt-12 text-center py-8 border-t border-border">
+        <div className="mt-12 text-center py-8 border-t border-border data-[html2canvas-ignore]:hidden" data-html2canvas-ignore="true">
           <h3 className="text-lg font-semibold text-foreground mb-2">Ready to improve?</h3>
           <p className="text-muted-foreground mb-6">
             Schedule another mock interview focusing on System Design to boost your score.

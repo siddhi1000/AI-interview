@@ -103,7 +103,7 @@ const Dashboard = () => {
           </div>
           <Button 
             className="gradient-primary text-primary-foreground"
-            onClick={() => navigate("/interview")}
+            onClick={() => navigate("/add-details")}
           >
             <Plus size={18} className="mr-2" />
             Create New Interview
@@ -133,7 +133,7 @@ const Dashboard = () => {
               <div className="flex flex-wrap gap-3">
                 <Button 
                   className="gradient-primary text-primary-foreground px-8 h-12"
-                  onClick={() => navigate("/interview")}
+                  onClick={() => navigate("/add-details")}
                 >
                   Start an Interview
                 </Button>

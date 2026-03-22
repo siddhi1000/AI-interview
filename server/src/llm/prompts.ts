@@ -68,7 +68,36 @@ export const buildAssessmentUserPrompt = (input: {
     JSON.stringify(input.role),
     "",
     "Questions and answers (JSON):",
+    "Note: This data includes preliminary scores and feedback for each answer. Use them to inform the final assessment, but you may adjust the overall scoring if the aggregate performance differs.",
     JSON.stringify(input.questionsAndAnswers),
+  ].join("\n");
+};
+
+export const buildAnswerFeedbackSystemPrompt = () => {
+  return [
+    "You are an expert technical interviewer.",
+    "Evaluate the candidate's answer to the specific question provided.",
+    "Return valid JSON only.",
+    "Provide a score (0-100) and concise feedback (2-3 sentences max).",
+  ].join("\n");
+};
+
+export const buildAnswerFeedbackUserPrompt = (input: {
+  question: string;
+  expectedSignals?: string[];
+  answer: string;
+  role?: any;
+}) => {
+  return [
+    "Evaluate this single interview answer.",
+    "Context:",
+    `Role: ${input.role?.title || "General Software Engineer"}`,
+    `Question: ${input.question}`,
+    input.expectedSignals ? `Expected Signals: ${JSON.stringify(input.expectedSignals)}` : "",
+    `Candidate Answer: "${input.answer}"`,
+    "",
+    "Output JSON shape:",
+    `{ "score": number, "feedback": string, "keyGap"?: string, "isStrongAnswer": boolean }`,
   ].join("\n");
 };
 

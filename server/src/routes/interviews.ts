@@ -5,12 +5,14 @@ import { HttpError } from "../lib/httpError";
 import { publishInterviewEvent } from "../realtime/interviewEvents";
 import { geminiRateLimit } from "../middleware/geminiRateLimit";
 import { geminiGenerateStructured, getGeminiModelUsed } from "../llm/geminiClient";
-import { assessmentSchema, generatedQuestionsSchema } from "../llm/schemas";
+import { assessmentSchema, generatedQuestionsSchema, answerFeedbackSchema } from "../llm/schemas";
 import {
   buildAssessmentSystemPrompt,
   buildAssessmentUserPrompt,
   buildQuestionGenerationSystemPrompt,
   buildQuestionGenerationUserPrompt,
+  buildAnswerFeedbackSystemPrompt,
+  buildAnswerFeedbackUserPrompt,
 } from "../llm/prompts";
 
 export const interviewsRouter = Router();
@@ -49,6 +51,7 @@ const submitAnswersSchema = z.object({
       z.object({
         questionId: z.string().uuid(),
         answerText: z.string().trim().min(1).max(20000),
+        audioUrl: z.string().optional().nullable(),
       })
     )
     .min(1)
@@ -251,6 +254,19 @@ interviewsRouter.post("/:id/questions/generate", geminiRateLimit("questions.gene
     if (!interview) throw new HttpError(404, "Not found");
     if (dbUser.role !== "ADMIN" && interview.userId !== dbUser.id) throw new HttpError(403, "Forbidden");
 
+    // Check if questions already exist to prevent repetitive generation
+    // Optimized: Only count if no body override provided (forcing regen?)
+    // Actually, for safety, let's always check first.
+    const existingCount = await prisma.interviewQuestion.count({ where: { interviewId: interview.id } });
+    if (existingCount > 0) {
+      const questions = await prisma.interviewQuestion.findMany({
+        where: { interviewId: interview.id },
+        orderBy: { order: "asc" },
+      });
+      res.json({ questions });
+      return;
+    }
+
     const input = generateQuestionsSchema.parse(req.body ?? {});
     const role = input.jobRoleId
       ? await prisma.jobRole.findUnique({ where: { id: input.jobRoleId } })
@@ -363,6 +379,9 @@ interviewsRouter.post("/:id/answers", async (req, res, next) => {
       if (!allowed.has(a.questionId)) throw new HttpError(400, "Invalid questionId for this interview.");
     }
 
+    // Log the answer submission for debugging
+    console.log(`[Answers] Received ${input.answers.length} answers for interview ${interview.id}`);
+
     await prisma.$transaction(async (tx) => {
       await tx.interviewAnswer.deleteMany({ where: { interviewId: interview.id, questionId: { in: questionIds } } });
       await tx.interviewAnswer.createMany({
@@ -370,6 +389,7 @@ interviewsRouter.post("/:id/answers", async (req, res, next) => {
           interviewId: interview.id,
           questionId: a.questionId,
           answerText: a.answerText,
+          audioUrl: a.audioUrl,
         })),
       });
       await tx.interviewEvent.create({
@@ -413,15 +433,21 @@ interviewsRouter.post("/:id/assessment/generate", geminiRateLimit("assessment.ge
     if (questions.length === 0) throw new HttpError(400, "No questions found for this interview.");
     if (answers.length === 0) throw new HttpError(400, "No answers found for this interview.");
 
-    const answersByQuestion = new Map(answers.map((a) => [a.questionId, a.answerText]));
-    const qa = questions.map((q) => ({
-      order: q.order,
-      type: q.type,
-      difficulty: q.difficulty,
-      topic: q.topic,
-      question: q.question,
-      answer: answersByQuestion.get(q.id) ?? "",
-    }));
+    const answersByQuestion = new Map(answers.map((a) => [a.questionId, a]));
+    const qa = questions.map((q) => {
+      const ans = answersByQuestion.get(q.id);
+      return {
+        order: q.order,
+        type: q.type,
+        difficulty: q.difficulty,
+        topic: q.topic,
+        question: q.question,
+        expectedSignals: q.expectedSignals,
+        answer: ans?.answerText ?? "",
+        preliminaryFeedback: ans?.feedback ?? null,
+        preliminaryScore: ans?.score ?? null,
+      };
+    });
 
     const candidate = {
       profile,
